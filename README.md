@@ -15,8 +15,6 @@ FocusFlow là ứng dụng giúp người dùng quản lý công việc hiệu q
 | **PostgreSQL** (Neon Cloud) | Cơ sở dữ liệu quan hệ lưu trữ toàn bộ dữ liệu hệ thống |
 | **Prisma ORM** | ORM mapping và migration quản lý schema database |
 | **JWT (Access + Refresh Token)** | Xác thực người dùng, cơ chế Token Rotation bảo mật |
-| **Passport.js** | Strategy xác thực JWT và Refresh Token |
-| **bcryptjs** | Băm mật khẩu và refresh token |
 | **Socket.IO** | WebSocket server – đồng hồ Pomodoro realtime, thông báo realtime |
 | **Google Gemini AI API** | Gợi ý chia nhỏ công việc (subtask) và sinh nhận xét năng suất hàng tuần |
 | **Swagger / OpenAPI** | Tài liệu API tự động tại `/api/docs` |
@@ -28,34 +26,28 @@ FocusFlow là ứng dụng giúp người dùng quản lý công việc hiệu q
 | **React 19** + **TypeScript** | Framework UI |
 | **Vite** | Build tool và dev server |
 | **TailwindCSS v4** | Styling utility-first |
-| **Zustand** | State management toàn cục |
-| **TanStack Query (React Query)** | Quản lý server state, caching, refetching |
-| **React Router DOM v7** | Client-side routing |
 | **Axios** | HTTP client giao tiếp với Backend API |
 | **Socket.io-client** | WebSocket client nhận tick Pomodoro và thông báo realtime |
-| **Recharts** | Biểu đồ thống kê (heatmap, completion rate) |
-| **React Big Calendar** | Hiển thị lịch tuần dạng calendar |
-| **Lucide React** | Bộ icon |
+
 
 ---
 
 ## Tổng quan hệ thống
 
-FocusFlow được xây dựng theo kiến trúc **Modular Monolith** gồm 8 module nghiệp vụ chính:
+FocusFlow được xây dựng theo kiến trúc **Modular Monolith** gồm 7 module nghiệp vụ chính:
 
 ```
-Auth → Tasks → Scheduler → Pomodoro → Analytics → AI → Notification → Admin
+Auth → Tasks → Scheduler → Pomodoro → Analytics → AI → Admin
 ```
 
 | Module | Chức năng chính |
 |---|---|
-| **Auth** | Đăng ký, đăng nhập, JWT Token Rotation, RBAC phân quyền USER/ADMIN |
+| **Auth** | Đăng ký, đăng nhập, phân quyền USER/ADMIN |
 | **Tasks** | CRUD công việc + subtask, tự động tính Priority Score theo 5 thành phần |
 | **Scheduler** | Thuật toán Greedy Scheduling lập lịch tuần, quản lý Schedule Slot, phát hiện xung đột giờ |
 | **Pomodoro** | State machine quản lý phiên tập trung: Start → Pause → Resume → Complete/Cancel, khảo sát lý do bỏ ngang |
-| **Analytics** | Ghi nhận behavior log, tính Procrastination Score hàng ngày (5 chỉ số), heatmap hiệu suất |
+| **Analytics** | Ghi nhận behavior log, tính Procrastination Score hàng ngày (5 chỉ số), thống kê hiệu suất |
 | **AI (Gemini)** | Gợi ý subtask từ tên task, sinh AI Insights hàng tuần |
-| **Notification** | Realtime qua WebSocket: tick đồng hồ Pomodoro, cảnh báo slot trễ, thông báo AI mới |
 | **Admin** | Quản lý người dùng, khóa tài khoản, dashboard tổng quan, cấu hình trọng số hệ thống |
 
 ### Thuật toán nổi bật
@@ -113,8 +105,6 @@ FocusFlow/
 
 ## Yêu cầu môi trường
 
-Trước khi bắt đầu, hãy đảm bảo máy bạn đã cài đặt:
-
 | Công cụ | Phiên bản tối thiểu | Link tải |
 |---|---|---|
 | **Node.js** | v20 LTS trở lên | https://nodejs.org |
@@ -122,7 +112,6 @@ Trước khi bắt đầu, hãy đảm bảo máy bạn đã cài đặt:
 | **Git** | Bất kỳ | https://git-scm.com |
 | **Docker** *(tùy chọn)* | v24 trở lên | https://www.docker.com |
 
-Bạn cũng cần:
 - Một **PostgreSQL database** – khuyến nghị dùng [Neon.tech](https://neon.tech) (free tier, serverless PostgreSQL)
 - Một **Google Gemini API Key** – đăng ký tại [Google AI Studio](https://aistudio.google.com)
 
@@ -187,8 +176,8 @@ Khởi động backend ở chế độ development (hot-reload):
 npm run start:dev
 ```
 
-✅ Backend sẽ chạy tại: `http://localhost:3000`  
-📄 Swagger API Docs: `http://localhost:3000/api/docs`
+- Backend sẽ chạy tại: `http://localhost:3000`  
+- Swagger API Docs: `http://localhost:3000/api/docs`
 
 ---
 
@@ -219,7 +208,7 @@ Khởi động frontend:
 npm run dev
 ```
 
-✅ Frontend sẽ chạy tại: `http://localhost:5173`
+- Frontend sẽ chạy tại: `http://localhost:5173`
 
 ---
 
