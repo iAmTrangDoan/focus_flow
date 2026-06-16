@@ -1,0 +1,188 @@
+@import 'tailwindcss';
+
+:root {
+  /* FocusFlow Green Pastel Design System */
+  /* Primary Colors */
+  --color-primary: #5FAF6E; /* Primary Green - CTA, active states */
+  --color-primary-dark: #4a9354; /* Darker green for hover */
+  --color-primary-light: #DDF3DF; /* Soft mint for backgrounds */
+  
+  /* Secondary Colors */
+  --color-secondary: #7BC47F; /* Secondary green for accents */
+  --color-secondary-light: #E8F5EA; /* Very light green */
+  
+  /* Accent Colors (Pastel) */
+  --color-accent-yellow: #F7E7A8; /* Pastel yellow */
+  --color-accent-peach: #F6D8C7; /* Pastel peach */
+  --color-accent-blue: #DCECF8; /* Pastel blue */
+  
+  /* Neutrals */
+  --color-background: #F4FAF4; /* Pale sage background */
+  --color-surface: #FFFFFF; /* Pure white for cards */
+  --color-text-primary: #243024; /* Deep text */
+  --color-text-secondary: #5F6E5F; /* Medium gray-green */
+  --color-border: #D9E6D9; /* Soft green border */
+  
+  /* Semantic Colors */
+  --color-success: #5FAF6E;
+  --color-success-light: #E8F5EA;
+  --color-warning: #F7B536;
+  --color-error: #E8745B;
+  --color-info: #7BC47F;
+  
+  /* UI Elements */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+}
+
+@layer base {
+  html {
+    @apply bg-[#F4FAF4] scroll-smooth;
+  }
+  
+  body {
+    @apply bg-[#F4FAF4] text-[#243024] font-sans;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  
+  * {
+    @apply border-[#D9E6D9];
+  }
+  
+  a {
+    @apply text-[#5FAF6E] hover:text-[#4a9354] transition-colors;
+  }
+}
+
+@layer components {
+  /* Buttons */
+  .btn-primary {
+    @apply px-6 py-2.5 bg-[#5FAF6E] text-white rounded-[14px] font-medium hover:bg-[#4a9354] transition-all active:scale-95 shadow-sm hover:shadow-md;
+  }
+  
+  .btn-secondary {
+    @apply px-6 py-2.5 bg-[#DDF3DF] text-[#5FAF6E] rounded-[14px] font-medium hover:bg-[#C9EAC9] transition-colors;
+  }
+  
+  .btn-ghost {
+    @apply px-6 py-2.5 text-[#5FAF6E] rounded-[14px] font-medium hover:bg-[#E8F5EA] transition-colors;
+  }
+  
+  .btn-outline {
+    @apply px-6 py-2.5 border-2 border-[#5FAF6E] text-[#5FAF6E] rounded-[14px] font-medium hover:bg-[#DDF3DF] transition-colors;
+  }
+  
+  /* Cards */
+  .card {
+    @apply bg-white rounded-[16px] border border-[#D9E6D9] shadow-sm hover:shadow-md transition-shadow;
+  }
+  
+  .card-lg {
+    @apply bg-white rounded-[20px] border border-[#D9E6D9] shadow-sm hover:shadow-md transition-shadow;
+  }
+  
+  .card-accent {
+    @apply bg-[#F4FAF4] rounded-[16px] border border-[#D9E6D9] shadow-sm;
+  }
+  
+  /* Inputs */
+  .input-field {
+    @apply px-4 py-2.5 rounded-[12px] border border-[#D9E6D9] bg-white text-[#243024] placeholder-[#5F6E5F] focus:outline-none focus:ring-2 focus:ring-[#5FAF6E] focus:border-transparent transition-all;
+  }
+  
+  /* Badges */
+  .badge {
+    @apply inline-flex items-center px-3 py-1.5 rounded-[8px] text-xs font-semibold;
+  }
+  
+  .badge-priority-high {
+    @apply bg-[#F6D8C7] text-[#C1644C];
+  }
+  
+  .badge-priority-medium {
+    @apply bg-[#F7E7A8] text-[#B8860B];
+  }
+  
+  .badge-priority-low {
+    @apply bg-[#DDF3DF] text-[#5FAF6E];
+  }
+  
+  .badge-success {
+    @apply bg-[#E8F5EA] text-[#5FAF6E];
+  }
+  
+  .badge-status {
+    @apply bg-[#DCECF8] text-[#4A7FB8];
+  }
+  
+  /* Sidebar Navigation */
+  .sidebar-nav {
+    @apply flex flex-col gap-1.5;
+  }
+  
+  .sidebar-nav-item {
+    @apply px-4 py-3 rounded-[12px] text-[#5F6E5F] hover:bg-[#E8F5EA] transition-colors cursor-pointer flex items-center gap-3;
+  }
+  
+  .sidebar-nav-item.active {
+    @apply bg-[#DDF3DF] text-[#5FAF6E] font-medium;
+  }
+}
+
+/* Typography */
+@layer utilities {
+  .text-h1 {
+    @apply text-5xl md:text-6xl font-bold text-[#243024] leading-tight tracking-tight;
+  }
+  
+  .text-h2 {
+    @apply text-4xl md:text-5xl font-bold text-[#243024] leading-snug tracking-tight;
+  }
+  
+  .text-h3 {
+    @apply text-3xl md:text-4xl font-bold text-[#243024] leading-snug;
+  }
+  
+  .text-h4 {
+    @apply text-2xl font-semibold text-[#243024];
+  }
+  
+  .text-h5 {
+    @apply text-lg font-semibold text-[#243024];
+  }
+  
+  .text-body-lg {
+    @apply text-lg text-[#243024] leading-relaxed;
+  }
+  
+  .text-body {
+    @apply text-base text-[#243024] leading-relaxed;
+  }
+  
+  .text-body-sm {
+    @apply text-sm text-[#5F6E5F] leading-relaxed;
+  }
+  
+  .text-caption {
+    @apply text-xs text-[#5F6E5F] uppercase tracking-wider font-medium;
+  }
+  
+  /* Utilities */
+  .text-muted {
+    @apply text-[#5F6E5F];
+  }
+  
+  .text-primary {
+    @apply text-[#5FAF6E];
+  }
+  
+  .bg-primary-light {
+    @apply bg-[#DDF3DF];
+  }
+  
+  .bg-secondary-light {
+    @apply bg-[#E8F5EA];
+  }
+}

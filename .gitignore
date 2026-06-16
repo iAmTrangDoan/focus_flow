@@ -1,0 +1,21 @@
+# Env files - KHÔNG bao giờ commit
+**/.env
+!**/.env.example
+
+# Node modules
+**/node_modules/
+
+# Build output
+**/dist/
+**/build/
+
+# Prisma generated
+**/generated/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
