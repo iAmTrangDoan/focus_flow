@@ -50,19 +50,6 @@ Auth → Tasks → Scheduler → Pomodoro → Analytics → AI → Admin
 | **AI (Gemini)** | Gợi ý subtask từ tên task, sinh AI Insights hàng tuần |
 | **Admin** | Quản lý người dùng, khóa tài khoản, dashboard tổng quan, cấu hình trọng số hệ thống |
 
-### Thuật toán nổi bật
-
-**Priority Score** – tự động tính điểm ưu tiên cho mỗi task:
-```
-PS = w1×Urgency + w2×Importance + w3×DeadlinePressure + w4×EnergyFit + w5×ProcrastinationRisk
-```
-Trọng số mặc định: `w1=0.25, w2=0.25, w3=0.20, w4=0.15, w5=0.15` (Admin có thể cấu hình).
-
-**Procrastination Score** – đo mức độ trì hoãn của người dùng (0–100):
-```
-Score = u1×DelayRate + u2×DeadlineMissRate + u3×TaskIdleDays + u4×RescheduleFrequency + u5×DurationAccuracy
-```
-Phân loại: **Tốt** (0–30) · **Trung bình** (31–60) · **Cần can thiệp** (61–100).
 
 ---
 
@@ -107,7 +94,7 @@ FocusFlow/
 
 | Công cụ | Phiên bản tối thiểu | Link tải |
 |---|---|---|
-| **Node.js** | v20 LTS trở lên | https://nodejs.org |
+| **Node.js** | v22 LTS trở lên | https://nodejs.org |
 | **npm** | v10 trở lên | Đi kèm Node.js |
 | **Git** | Bất kỳ | https://git-scm.com |
 | **Docker** *(tùy chọn)* | v24 trở lên | https://www.docker.com |
@@ -303,94 +290,12 @@ npm run lint
 
 Toàn bộ API có thể xem tương tác đầy đủ tại Swagger: **`http://localhost:3000/api/docs`**
 
-> **Lưu ý chung:**
-> - Tất cả endpoint (trừ `/api/auth/register`, `/api/auth/login`, `/api/auth/refresh`) yêu cầu header: `Authorization: Bearer <access_token>`
-> - Route `/api/admin/*` yêu cầu role = `ADMIN`
-> - Lỗi trả về theo format thống nhất: `{ statusCode, message, error }`
-
-### Auth
-
-| Method | Endpoint | Mô tả |
-|---|---|---|
-| `POST` | `/api/auth/register` | Đăng ký tài khoản mới |
-| `POST` | `/api/auth/login` | Đăng nhập, nhận access token + refresh token |
-| `POST` | `/api/auth/refresh` | Cấp lại access token từ refresh token |
-| `POST` | `/api/auth/logout` | Đăng xuất, thu hồi refresh token |
-| `GET` | `/api/auth/me` | Lấy thông tin người dùng hiện tại |
-
-### Tasks & Subtasks
-
-| Method | Endpoint | Mô tả |
-|---|---|---|
-| `GET` | `/api/tasks` | Lấy danh sách task (sắp xếp theo priority score) |
-| `POST` | `/api/tasks` | Tạo task mới |
-| `GET` | `/api/tasks/:id` | Xem chi tiết task + priority breakdown |
-| `PATCH` | `/api/tasks/:id` | Cập nhật task |
-| `DELETE` | `/api/tasks/:id` | Xóa task |
-| `PATCH` | `/api/tasks/:id/complete` | Đánh dấu hoàn thành task |
-| `GET` | `/api/tasks/:id/subtasks` | Lấy danh sách subtask của task |
-| `POST` | `/api/tasks/:id/subtasks` | Thêm subtask mới |
-| `PATCH` | `/api/subtasks/:id` | Cập nhật subtask |
-| `PATCH` | `/api/subtasks/:id/complete` | Đánh dấu hoàn thành subtask |
-| `DELETE` | `/api/subtasks/:id` | Xóa subtask |
-
-### Scheduler
-
-| Method | Endpoint | Mô tả |
-|---|---|---|
-| `POST` | `/api/schedule/generate` | Chạy thuật toán Greedy Scheduling tạo lịch tuần |
-| `GET` | `/api/schedule/weekly` | Lấy lịch tuần hiện tại |
-| `GET` | `/api/schedule/slots` | Lấy danh sách slots (lọc theo khoảng ngày) |
-| `PATCH` | `/api/schedule/slots/:id` | Cập nhật slot (kéo thả đổi giờ) |
-| `DELETE` | `/api/schedule/slots/:id` | Xóa slot khỏi lịch |
-| `POST` | `/api/schedule/restructure` | Tái cấu trúc lịch từ thời điểm hiện tại |
-
-### Pomodoro
-
-| Method | Endpoint | Mô tả |
-|---|---|---|
-| `POST` | `/api/pomodoro/sessions` | Bắt đầu phiên Pomodoro mới |
-| `GET` | `/api/pomodoro/sessions/current` | Lấy phiên đang hoạt động |
-| `GET` | `/api/pomodoro/sessions` | Lịch sử các phiên Pomodoro |
-| `PATCH` | `/api/pomodoro/sessions/:id/pause` | Tạm dừng phiên |
-| `PATCH` | `/api/pomodoro/sessions/:id/resume` | Tiếp tục phiên |
-| `PATCH` | `/api/pomodoro/sessions/:id/complete` | Hoàn thành phiên |
-| `PATCH` | `/api/pomodoro/sessions/:id/cancel` | Hủy / bỏ ngang phiên |
-| `POST` | `/api/pomodoro/sessions/:id/quick-feedback` | Gửi lý do hủy ngang |
-
-### Admin
-
-| Method | Endpoint | Mô tả |
-|---|---|---|
-| `GET` | `/api/admin/users` | Danh sách toàn bộ user |
-| `GET` | `/api/admin/users/:id` | Xem chi tiết user |
-| `PATCH` | `/api/admin/users/:id/toggle-active` | Khóa / mở khóa tài khoản |
-| `GET` | `/api/admin/dashboard` | Chỉ số tổng quan hệ thống |
-| `GET` | `/api/admin/configs` | Lấy cấu hình hệ thống |
-| `PATCH` | `/api/admin/configs` | Cập nhật cấu hình (validate trọng số) |
-
----
-
-## Biến môi trường Backend
-
-| Biến | Bắt buộc | Mô tả |
-|---|---|---|
-| `DATABASE_URL` | ✅ | Chuỗi kết nối PostgreSQL |
-| `JWT_SECRET` | ✅ | Bí mật ký Access Token (tối thiểu 32 ký tự) |
-| `JWT_REFRESH_SECRET` | ✅ | Bí mật ký Refresh Token (tối thiểu 32 ký tự) |
-| `JWT_EXPIRES_IN` | ✅ | Thời hạn Access Token (vd: `15m`) |
-| `JWT_REFRESH_EXPIRES_IN` | ✅ | Thời hạn Refresh Token (vd: `7d`) |
-| `GEMINI_API_KEY` | ✅ | Google Gemini API Key |
-| `PORT` | ❌ | Port backend (mặc định: `3000`) |
-| `FRONTEND_URL` | ❌ | URL frontend cho CORS (mặc định: `http://localhost:5173`) |
-
----
+----
 
 ## Ghi chú
 
 - **Database**: Dự án sử dụng **Neon Serverless PostgreSQL** (cloud), không cần cài PostgreSQL local. Bạn có thể tạo database miễn phí tại [neon.tech](https://neon.tech).
 - **Gemini AI**: Nếu không có API key, các tính năng gợi ý subtask và AI Insights sẽ không hoạt động, nhưng các chức năng còn lại vẫn hoạt động bình thường.
-- **Tài liệu chi tiết**: Xem thêm trong thư mục `/document/` để biết thiết kế hệ thống, các công thức tính điểm và kịch bản demo API.
 
 ---
 
