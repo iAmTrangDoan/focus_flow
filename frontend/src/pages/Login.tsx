@@ -1,170 +1,322 @@
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { Mail, Lock, Eye, EyeOff, Leaf, Loader2 } from 'lucide-react'
-import authService from '../services/auth.service'
-import useAuthStore from '../store/authStore'
+import { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import { Leaf, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import authService from '../services/auth.service';
+import useAuthStore from '../store/authStore';
 
 export default function LoginPage() {
-  const navigate = useNavigate()
-  const setUser = useAuthStore((s) => s.setUser)
+  const navigate = useNavigate();
+  const setUser = useAuthStore((s) => s.setUser);
+  const setError = useAuthStore((s) => s.setError);
 
-  const [formData, setFormData] = useState({ email: '', password: '' })
-  const [showPassword, setShowPassword] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [remember, setRemember] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [serverError, setServerError] = useState('');
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target
-    setFormData((prev) => ({ ...prev, [name]: value }))
-    if (error) setError(null)
-  }
+  const emailError = submitted && !email.trim();
+  const passwordError = submitted && !password.trim();
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!formData.email || !formData.password) {
-      setError('Vui lòng nhập email và mật khẩu.')
-      return
-    }
+    e.preventDefault();
+    setSubmitted(true);
+    setServerError('');
+    if (!email.trim() || !password.trim()) return;
 
-    setIsLoading(true)
-    setError(null)
-
+    setLoading(true);
     try {
-      const response = await authService.login(formData)
-      authService.saveSession(response)
-      setUser(response.user)
-      navigate('/dashboard', { replace: true })
-    } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Email hoặc mật khẩu không đúng. Vui lòng thử lại.'
-      setError(msg)
+      const response = await authService.login({ email, password });
+      authService.saveSession(response);
+      setUser(response.user);
+      navigate('/dashboard');
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'Đăng nhập thất bại. Vui lòng thử lại.';
+      setServerError(msg);
+      setError(msg);
     } finally {
-      setIsLoading(false)
+      setLoading(false);
     }
-  }
+  };
+
+  const heatmapColors = ['#DDF3DF', '#9BD4A5', '#5FAF6E', '#3D8B50'];
+  const heatmapData = Array.from({ length: 21 }, (_, i) => heatmapColors[i % 4]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#F4FAF4] via-white to-[#DDF3DF] flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        {/* Logo */}
-        <Link to="/" className="flex justify-center mb-8">
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-[12px] bg-gradient-to-br from-[#5FAF6E] to-[#7BC47F] flex items-center justify-center text-white shadow-sm">
-              <Leaf size={20} />
-            </div>
-            <h1 className="text-3xl font-bold text-[#243024]">FocusFlow</h1>
+    <div className="min-h-screen flex flex-col" style={{ background: '#F4FAF4' }}>
+      {/* Floating top navbar */}
+      <nav
+        className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-3"
+        style={{
+          background: 'rgba(255,255,255,0.9)',
+          backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
+          borderBottom: '1px solid #F4FAF4',
+        }}
+      >
+        <Link to="/" className="flex items-center gap-2.5">
+          <div
+            className="flex items-center justify-center rounded-lg"
+            style={{ width: 32, height: 32, background: '#5FAF6E' }}
+          >
+            <Leaf size={16} color="#fff" strokeWidth={2.2} />
           </div>
+          <span className="text-base font-bold" style={{ color: '#243024' }}>
+            FocusFlow
+          </span>
         </Link>
+        <a
+          href="#"
+          className="text-sm font-medium transition-colors duration-150 hover:opacity-80"
+          style={{ color: '#5F6E5F' }}
+        >
+          Need help?
+        </a>
+      </nav>
 
-        {/* Card */}
-        <div className="card-lg p-8 shadow-md">
-          <h2 className="text-2xl font-bold text-center text-[#243024] mb-1">Đăng nhập</h2>
-          <p className="text-center text-body-sm mb-8">Chào mừng quay lại FocusFlow 👋</p>
-
-          {/* Error */}
-          {error && (
-            <div className="mb-4 p-3 rounded-[12px] bg-red-50 border border-red-200 text-sm text-[#E8745B]">
-              {error}
-            </div>
-          )}
-
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Email */}
-            <div>
-              <label className="block text-sm font-semibold text-[#243024] mb-2">Email</label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5F6E5F]" size={18} />
-                <input
-                  id="login-email"
-                  type="email"
-                  name="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  placeholder="your@email.com"
-                  className="input-field pl-10 w-full"
-                  autoComplete="email"
-                  required
-                />
-              </div>
-            </div>
-
-            {/* Password */}
-            <div>
-              <label className="block text-sm font-semibold text-[#243024] mb-2">Mật khẩu</label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5F6E5F]" size={18} />
-                <input
-                  id="login-password"
-                  type={showPassword ? 'text' : 'password'}
-                  name="password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  placeholder="••••••••"
-                  className="input-field pl-10 pr-10 w-full"
-                  autoComplete="current-password"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5F6E5F] hover:text-[#243024]"
-                >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
-            </div>
-
-            {/* Remember / Forgot */}
-            <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" className="w-4 h-4 accent-[#5FAF6E]" />
-                <span className="text-sm text-[#5F6E5F]">Nhớ mật khẩu</span>
-              </label>
-              <a href="#" className="text-sm text-[#5FAF6E] hover:text-[#4a9354]">
-                Quên mật khẩu?
-              </a>
-            </div>
-
-            <button
-              id="login-submit"
-              type="submit"
-              disabled={isLoading}
-              className="btn-primary w-full mt-2 flex items-center justify-center gap-2"
+      {/* Split screen */}
+      <div className="flex flex-1 pt-12">
+        {/* LEFT PANEL */}
+        <div
+          className="hidden lg:flex flex-col items-center justify-center w-1/2 p-12"
+          style={{ background: '#DDF3DF' }}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className="flex items-center justify-center rounded-xl"
+              style={{ width: 40, height: 40, background: '#5FAF6E' }}
             >
-              {isLoading && <Loader2 size={18} className="animate-spin" />}
-              {isLoading ? 'Đang đăng nhập...' : 'Đăng nhập'}
-            </button>
-          </form>
-
-          {/* Divider */}
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-[#D9E6D9]" />
+              <Leaf size={20} color="#fff" strokeWidth={2.2} />
             </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-3 bg-white text-[#5F6E5F]">hoặc</span>
+            <span className="text-2xl font-bold" style={{ color: '#243024' }}>
+              FocusFlow
+            </span>
+          </div>
+
+          {/* Stat card */}
+          <div
+            className="mt-12 p-8"
+            style={{
+              background: '#FFFFFF',
+              borderRadius: 16,
+              boxShadow: '0 4px 24px 0 rgba(36,48,36,0.10)',
+              maxWidth: 320,
+              width: '100%',
+            }}
+          >
+            <p className="text-base font-semibold mb-5" style={{ color: '#243024' }}>
+              Your Focus, This Week
+            </p>
+            <div className="grid grid-cols-7 gap-2 mb-5">
+              {heatmapData.map((c, i) => (
+                <div
+                  key={i}
+                  className="rounded-md"
+                  style={{ width: 32, height: 32, background: c }}
+                />
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { icon: '🔥', text: '5-day streak' },
+                { icon: '⏱', text: '18.5 hrs focused' },
+                { icon: '✅', text: '24 tasks done' },
+              ].map((chip) => (
+                <span
+                  key={chip.text}
+                  className="inline-flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-full"
+                  style={{ background: '#F4FAF4', color: '#5F6E5F' }}
+                >
+                  {chip.icon} {chip.text}
+                </span>
+              ))}
             </div>
           </div>
 
-          {/* Switch to Register */}
-          <p className="text-center text-sm text-[#5F6E5F]">
-            Chưa có tài khoản?{' '}
-            <Link to="/register" className="text-[#5FAF6E] font-semibold hover:text-[#4a9354]">
-              Đăng ký ngay
-            </Link>
+          <p
+            className="mt-10 text-sm italic text-center leading-relaxed max-w-xs"
+            style={{ color: '#5F6E5F' }}
+          >
+            "The secret of getting ahead is getting started." — Mark Twain
           </p>
         </div>
 
-        {/* Footer */}
-        <p className="text-center text-body-sm mt-6">
-          Bằng cách đăng nhập, bạn đồng ý với{' '}
-          <a href="#" className="text-[#5FAF6E]">Điều khoản dịch vụ</a>
-          {' '}và{' '}
-          <a href="#" className="text-[#5FAF6E]">Chính sách bảo mật</a>
-        </p>
+        {/* RIGHT PANEL */}
+        <div className="flex flex-1 items-center justify-center p-6 lg:p-8">
+          <div
+            className="w-full max-w-md p-8 lg:p-10"
+            style={{
+              background: '#FFFFFF',
+              borderRadius: 16,
+              boxShadow: '0 8px 40px 0 rgba(36,48,36,0.10)',
+            }}
+          >
+            <h1 className="text-2xl font-bold" style={{ color: '#243024' }}>
+              Welcome back 👋
+            </h1>
+            <p className="text-sm mt-1" style={{ color: '#5F6E5F' }}>
+              Log in to continue your focus journey.
+            </p>
+
+            {serverError && (
+              <div className="mt-4 p-3 rounded-xl text-sm" style={{ background: '#F6D8C7', color: '#C1644C' }}>
+                {serverError}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-5">
+              {/* Email */}
+              <div>
+                <label
+                  className="block text-sm font-medium mb-1.5"
+                  style={{ color: '#243024' }}
+                >
+                  Email address
+                </label>
+                <div className="relative">
+                  <Mail
+                    size={18}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                    style={{ color: '#9CA3AF' }}
+                  />
+                  <input
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full rounded-xl border py-3 pr-4 pl-10 text-sm transition-all duration-150 outline-none"
+                    style={{
+                      borderColor: emailError ? '#C1644C' : '#D1D5DB',
+                      color: '#243024',
+                    }}
+                    onFocus={(e) => {
+                      e.currentTarget.style.borderColor = '#5FAF6E';
+                      e.currentTarget.style.boxShadow = '0 0 0 3px rgba(95,175,110,0.15)';
+                    }}
+                    onBlur={(e) => {
+                      e.currentTarget.style.borderColor = emailError ? '#C1644C' : '#D1D5DB';
+                      e.currentTarget.style.boxShadow = 'none';
+                    }}
+                  />
+                </div>
+                {emailError && (
+                  <p className="text-xs mt-1.5" style={{ color: '#C1644C' }}>
+                    This field is required.
+                  </p>
+                )}
+              </div>
+
+              {/* Password */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-sm font-medium" style={{ color: '#243024' }}>
+                    Password
+                  </label>
+                  <a
+                    href="#"
+                    className="text-xs transition-colors duration-150 hover:underline"
+                    style={{ color: '#5FAF6E' }}
+                  >
+                    Forgot password?
+                  </a>
+                </div>
+                <div className="relative">
+                  <Lock
+                    size={18}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                    style={{ color: '#9CA3AF' }}
+                  />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full rounded-xl border py-3 pr-10 pl-10 text-sm transition-all duration-150 outline-none"
+                    style={{
+                      borderColor: passwordError ? '#C1644C' : '#D1D5DB',
+                      color: '#243024',
+                    }}
+                    onFocus={(e) => {
+                      e.currentTarget.style.borderColor = '#5FAF6E';
+                      e.currentTarget.style.boxShadow = '0 0 0 3px rgba(95,175,110,0.15)';
+                    }}
+                    onBlur={(e) => {
+                      e.currentTarget.style.borderColor = passwordError ? '#C1644C' : '#D1D5DB';
+                      e.currentTarget.style.boxShadow = 'none';
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((s) => !s)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2"
+                    style={{ color: '#9CA3AF' }}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+                {passwordError && (
+                  <p className="text-xs mt-1.5" style={{ color: '#C1644C' }}>
+                    This field is required.
+                  </p>
+                )}
+              </div>
+
+              {/* Remember me */}
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setRemember((r) => !r)}
+                  className="flex items-center justify-center rounded-md border transition-colors duration-150"
+                  style={{
+                    width: 20,
+                    height: 20,
+                    background: remember ? '#5FAF6E' : '#FFFFFF',
+                    borderColor: remember ? '#5FAF6E' : '#D1D5DB',
+                  }}
+                >
+                  {remember && (
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                      <path
+                        d="M2.5 6L5 8.5L9.5 4"
+                        stroke="white"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  )}
+                </button>
+                <span className="text-sm" style={{ color: '#5F6E5F' }}>
+                  Remember me
+                </span>
+              </div>
+
+              {/* CTA */}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full text-sm font-semibold py-3 rounded-xl transition-all duration-150 hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
+                style={{ background: '#5FAF6E', color: '#fff' }}
+              >
+                {loading ? 'Đang đăng nhập...' : 'Log In'}
+              </button>
+            </form>
+
+            <p className="text-sm text-center mt-6" style={{ color: '#5F6E5F' }}>
+              Don't have an account?{' '}
+              <Link
+                to="/register"
+                className="font-semibold transition-colors duration-150 hover:opacity-80"
+                style={{ color: '#5FAF6E' }}
+              >
+                Sign up for free
+              </Link>
+            </p>
+          </div>
+        </div>
       </div>
     </div>
-  )
+  );
 }

@@ -1,15 +1,145 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client-js"
 }
 
-
 datasource db {
   provider = "postgresql"
+}
+
+model User {
+  id               String            @id @default(cuid())
+  email            String            @unique
+  passwordHash     String            @map("password_hash")
+  displayName      String?           @map("display_name")
+  role             Role              @default(USER)
+  timezone         String            @default("Asia/Ho_Chi_Minh")
+  isActive         Boolean           @default(true) @map("is_active")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  refreshTokens         RefreshToken[]
+  tasks                 Task[]
+  scheduleSlots         ScheduleSlot[]
+  pomodoroSessions      PomodoroSession[]
+  preference            UserPreference?
+  behaviorLogs          BehaviorLog[]
+  behaviorProfile       BehaviorProfile?
+  procrastinationScores ProcrastinationScore[]
+  aiInsights            AiInsight[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique @map("token_hash")
+  userId    String   @map("user_id")
+  isRevoked Boolean  @default(false) @map("is_revoked")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Task {
+  id               String            @id @default(cuid())
+  userId           String            @map("user_id")
+  title            String
+  description      String?
+  deadline         DateTime?
+  importance       Importance        @default(LOW)
+  focusMode        FocusMode         @default(STANDARD) @map("focus_mode")
+  estimatedMinutes Int?              @map("estimated_minutes")
+  priorityScore    Float             @default(0) @map("priority_score")
+  rescheduleCount  Int               @default(0) @map("reschedule_count")
+  status           TaskStatus        @default(TODO)
+  completedAt      DateTime?         @map("completed_at")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  fixedEnd         DateTime?         @map("fixed_end")
+  fixedStart       DateTime?         @map("fixed_start")
+  isFixedTask      Boolean           @default(false) @map("is_fixed_task")
+  pomodoroSessions PomodoroSession[]
+  scheduleSlots    ScheduleSlot[]
+  subtasks         Subtask[]
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  behaviorLogs     BehaviorLog[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([priorityScore])
+  @@map("tasks")
+}
+
+model Subtask {
+  id               String    @id @default(cuid())
+  taskId           String    @map("task_id")
+  title            String
+  estimatedMinutes Int?      @map("estimated_minutes")
+  isCompleted      Boolean   @default(false) @map("is_completed")
+  sortOrder        Int       @default(0) @map("sort_order")
+  completedAt      DateTime? @map("completed_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  task             Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("subtasks")
+}
+
+model ScheduleSlot {
+  id                  String              @id @default(cuid())
+  userId              String              @map("user_id")
+  taskId              String              @map("task_id")
+  startAt             DateTime            @map("start_at")
+  endAt               DateTime            @map("end_at")
+  isManual            Boolean             @default(false) @map("is_manual")
+  isCompleted         Boolean             @default(false) @map("is_completed")
+  status              SlotStatus          @default(SCHEDULED)
+  restructureStrategy RestructureStrategy @default(NONE) @map("restructure_strategy")
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
+  task                Task                @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([taskId])
+  @@index([startAt])
+  @@map("schedule_slots")
+}
+
+model PomodoroSession {
+  id              String              @id @default(cuid())
+  userId          String              @map("user_id")
+  taskId          String?             @map("task_id")
+  startedAt       DateTime            @default(now()) @map("started_at")
+  endedAt         DateTime?           @map("ended_at")
+  plannedDuration Int                 @default(25) @map("planned_duration")
+  actualDuration  Int?                @map("actual_duration")
+  status          PomodoroStatus      @default(IN_PROGRESS)
+  sessionType     PomodoroSessionType @default(WORK) @map("session_type")
+  pauseCount      Int                 @default(0) @map("pause_count")
+  dropReason      String?             @map("drop_reason")
+  createdAt       DateTime            @default(now()) @map("created_at")
+  task            Task?               @relation(fields: [taskId], references: [id])
+  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  behaviorLogs    BehaviorLog[]
+
+  @@index([userId])
+  @@index([taskId])
+  @@index([status])
+  @@map("pomodoro_sessions")
+}
+
+model SystemConfig {
+  key         String   @id
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+
+  @@map("system_configs")
 }
 
 enum Role {
@@ -34,10 +164,10 @@ enum FocusMode {
 }
 
 enum PomodoroStatus {
-  IN_PROGRESS
   COMPLETED
   CANCELLED
   PAUSED
+  IN_PROGRESS
 }
 
 enum PomodoroSessionType {
@@ -45,144 +175,145 @@ enum PomodoroSessionType {
   BREAK
 }
 
-// ─── USER & AUTH ────────────────────────────────────────────
+enum SlotStatus {
+  SCHEDULED
+  FROZEN_OVERDUE
+  COMPLETED
+}
 
-model User {
+enum RestructureStrategy {
+  NONE
+  SHIFT_TIME
+  TRIM_SUBTASKS
+}
+
+enum EventType {
+  TASK_CREATED
+  TASK_COMPLETED
+  TASK_DELAYED
+  TASK_DROPPED
+  TASK_STARTED_LATE
+  TASK_RESCHEDULED
+  DEADLINE_MISSED
+  POMODORO_COMPLETED
+  POMODORO_PAUSED
+  POMODORO_DROPPED
+  RESCHEDULE_PENALTY
+}
+
+enum ProcrastinationClassification {
+  GOOD
+  MEDIUM
+  NEEDS_INTERVENTION
+}
+
+enum InsightStatus {
+  PENDING
+  GENERATED
+  FAILED
+}
+
+// ─── USER PREFERENCES ──────────────────────────────────────
+
+model UserPreference {
+  userId        String   @id @map("user_id")
+  workStartTime String   @default("09:00") @map("work_start_time")
+  workEndTime   String   @default("18:00") @map("work_end_time")
+  workDays      Int[]    @default([1, 2, 3, 4, 5]) @map("work_days")
+  mainGoal      String   @default("personal_growth") @map("main_goal")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_preferences")
+}
+
+// ─── BEHAVIOR ANALYTICS ────────────────────────────────────
+
+model BehaviorLog {
   id            String    @id @default(cuid())
-  email         String    @unique
-  passwordHash  String    @map("password_hash")
-  displayName   String?   @map("display_name")
-  role          Role      @default(USER)
-  timezone      String    @default("Asia/Ho_Chi_Minh")
-  isActive      Boolean   @default(true) @map("is_active")
+  userId        String    @map("user_id")
+  taskId        String?   @map("task_id")
+  sessionId     String?   @map("session_id")
+  eventType     EventType @map("event_type")
+  metadata      Json?
+  scheduledTime DateTime? @map("scheduled_time")
+  delayMinutes  Int?      @map("delay_minutes")
+  occurredAt    DateTime  @default(now()) @map("occurred_at")
   createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
 
-  refreshTokens    RefreshToken[]
-  tasks            Task[]
-  scheduleSlots    ScheduleSlot[]
-  pomodoroSessions PomodoroSession[]
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task    Task?            @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  session PomodoroSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
 
-  @@map("users")
+  @@index([userId])
+  @@index([taskId])
+  @@index([eventType])
+  @@index([occurredAt])
+  @@map("behavior_logs")
 }
 
-model RefreshToken {
-  id        String   @id @default(cuid())
-  tokenHash String   @map("token_hash")
-  userId    String   @map("user_id")
-  isRevoked Boolean  @default(false) @map("is_revoked")
-  expiresAt DateTime @map("expires_at")
-  createdAt DateTime @default(now()) @map("created_at")
+model BehaviorProfile {
+  id                   String    @id @default(cuid())
+  userId               String    @unique @map("user_id")
+  peakHours            Json?     @map("peak_hours")
+  riskyHours           Json?     @map("risky_hours")
+  avgFocusDuration     Float     @default(0) @map("avg_focus_duration")
+  dropRate             Float     @default(0) @map("drop_rate")
+  commonDropReasons    Json?     @map("common_drop_reasons")
+  totalSessions        Int       @default(0) @map("total_sessions")
+  avgDelayMinutes      Float?    @map("avg_delay_minutes")
+  avgRescheduleCount   Float?    @map("avg_reschedule_count")
+  avgDurationAccuracy  Float?    @map("avg_duration_accuracy")
+  isColdStart          Boolean   @default(true) @map("is_cold_start")
+  lastCalculatedAt     DateTime? @map("last_calculated_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([tokenHash])
-  @@index([userId])
-  @@map("refresh_tokens")
+  @@map("behavior_profiles")
 }
 
-// ─── TASKS ─────────────────────────────────────────────────
+// ─── PRODUCTIVITY ANALYTICS ────────────────────────────────
 
-model Task {
-  id                String      @id @default(cuid())
-  userId            String      @map("user_id")
-  title             String
-  description       String?
-  deadline          DateTime?
-  importance        Importance  @default(LOW)
-  focusMode         FocusMode   @default(STANDARD) @map("focus_mode")
-  estimatedMinutes  Int?        @map("estimated_minutes")
-  priorityScore     Float       @default(0) @map("priority_score")
-  rescheduleCount   Int         @default(0) @map("reschedule_count")
-  status            TaskStatus  @default(TODO)
-  completedAt       DateTime?   @map("completed_at")
-  createdAt         DateTime    @default(now()) @map("created_at")
-  updatedAt         DateTime    @updatedAt @map("updated_at")
-
-  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  subtasks         Subtask[]
-  scheduleSlots    ScheduleSlot[]
-  pomodoroSessions PomodoroSession[]
-
-  @@index([userId])
-  @@index([status])
-  @@index([priorityScore])
-  @@map("tasks")
-}
-
-model Subtask {
-  id                String    @id @default(cuid())
-  taskId            String    @map("task_id")
-  title             String
-  estimatedMinutes  Int?      @map("estimated_minutes")
-  isCompleted       Boolean   @default(false) @map("is_completed")
-  sortOrder         Int       @default(0) @map("sort_order")
-  completedAt       DateTime? @map("completed_at")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
-
-  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-
-  @@index([taskId])
-  @@map("subtasks")
-}
-
-// ─── SCHEDULER ─────────────────────────────────────────────
-
-model ScheduleSlot {
-  id          String    @id @default(cuid())
-  userId      String    @map("user_id")
-  taskId      String    @map("task_id")
-  startAt     DateTime  @map("start_at")
-  endAt       DateTime  @map("end_at")
-  isManual    Boolean   @default(false) @map("is_manual")
-  isCompleted Boolean   @default(false) @map("is_completed")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+model ProcrastinationScore {
+  id                    String                       @id @default(cuid())
+  userId                String                       @map("user_id")
+  score                 Float
+  classification        ProcrastinationClassification
+  delayRate             Float                        @map("delay_rate")
+  deadlineMissRate      Float                        @map("deadline_miss_rate")
+  taskIdleDays          Float                        @map("task_idle_days")
+  rescheduleFrequency   Float                        @map("reschedule_frequency")
+  timeDurationAccuracy  Float                        @map("time_duration_accuracy")
+  calculationVersion    Int                          @default(1) @map("calculation_version")
+  calculatedDate        DateTime                     @map("calculated_date")
+  createdAt             DateTime                     @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
-  @@index([taskId])
-  @@index([startAt])
-  @@map("schedule_slots")
+  @@unique([userId, calculatedDate])
+  @@index([userId, calculatedDate])
+  @@map("procrastination_scores")
 }
 
-// ─── POMODORO ──────────────────────────────────────────────
+// ─── AI INSIGHTS ───────────────────────────────────────────
 
-model PomodoroSession {
-  id              String              @id @default(cuid())
-  userId          String              @map("user_id")
-  taskId          String?             @map("task_id")
-  startedAt       DateTime            @default(now()) @map("started_at")
-  endedAt         DateTime?           @map("ended_at")
-  plannedDuration Int                 @default(25) @map("planned_duration")
-  actualDuration  Int?                @map("actual_duration")
-  status          PomodoroStatus      @default(IN_PROGRESS)
-  sessionType     PomodoroSessionType @default(WORK) @map("session_type")
-  pauseCount      Int                 @default(0) @map("pause_count")
-  dropReason      String?             @map("drop_reason")
-  createdAt       DateTime            @default(now()) @map("created_at")
+model AiInsight {
+  id            String        @id @default(cuid())
+  userId        String        @map("user_id")
+  weekStartDate DateTime      @map("week_start_date")
+  content       Json
+  inputSummary  Json?         @map("input_summary")
+  isActionable  Boolean       @default(false) @map("is_actionable")
+  status        InsightStatus @default(PENDING)
+  createdAt     DateTime      @default(now()) @map("created_at")
 
-  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  task Task? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
-  @@index([taskId])
-  @@index([status])
-  @@map("pomodoro_sessions")
+  @@unique([userId, weekStartDate])
+  @@index([userId, weekStartDate])
+  @@map("ai_insights")
 }
-
-// ─── SYSTEM CONFIG ─────────────────────────────────────────
-
-model SystemConfig {
-  key         String   @id
-  value       String
-  description String?
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  updatedBy   String?  @map("updated_by")
-
-  @@map("system_configs")
-}
-

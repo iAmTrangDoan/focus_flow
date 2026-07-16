@@ -9,10 +9,6 @@ import { FocusMode } from '@prisma/client';
 
 @Injectable()
 export class SchedulerService {
-    // Giờ làm việc mặc định (8h-22h)
-    private readonly WORK_START_HOUR = 8;
-    private readonly WORK_END_HOUR = 22;
-
     constructor(private readonly prisma: PrismaService) {}
 
     /**
@@ -58,8 +54,19 @@ export class SchedulerService {
             orderBy: { startAt: 'asc' },
         });
 
+        // Lấy user preferences cho khung giờ làm việc
+        const prefs = await this.prisma.userPreference.findUnique({ where: { userId } });
+        const [startH, startM] = (prefs?.workStartTime ?? '09:00').split(':').map(Number);
+        const [endH, endM] = (prefs?.workEndTime ?? '18:00').split(':').map(Number);
+        const workDays = prefs?.workDays ?? [1, 2, 3, 4, 5];
+
         // Tạo danh sách khung giờ trống
-        const freeSlots = this.buildFreeSlots(weekStart, weekEnd, existingSlots);
+        const freeSlots = this.buildFreeSlots(
+            weekStart, weekEnd, existingSlots,
+            { hour: startH, min: startM },
+            { hour: endH, min: endM },
+            workDays,
+        );
 
         // Lắp tasks vào slots
         const newSlots: { userId: string; taskId: string; startAt: Date; endAt: Date }[] = [];
@@ -244,21 +251,34 @@ export class SchedulerService {
 
     /**
      * Xây dựng danh sách khung giờ trống trong tuần.
+     * Chỉ tạo slots cho các ngày trong workDays và trong khung workStart–workEnd.
      */
     private buildFreeSlots(
         weekStart: Date,
         weekEnd: Date,
         existingSlots: { startAt: Date; endAt: Date }[],
+        workStart: { hour: number; min: number },
+        workEnd: { hour: number; min: number },
+        workDays: number[],
     ): { start: Date; end: Date }[] {
         const freeSlots: { start: Date; end: Date }[] = [];
 
         // Tạo khung giờ cho từng ngày trong tuần
         const current = new Date(weekStart);
         while (current < weekEnd) {
+            // Convert getDay() (0=Sun) → ISO day (1=Mon..7=Sun)
+            const isoDay = current.getDay() === 0 ? 7 : current.getDay();
+
+            // Bỏ qua ngày không làm việc
+            if (!workDays.includes(isoDay)) {
+                current.setDate(current.getDate() + 1);
+                continue;
+            }
+
             const dayStart = new Date(current);
-            dayStart.setHours(this.WORK_START_HOUR, 0, 0, 0);
+            dayStart.setHours(workStart.hour, workStart.min, 0, 0);
             const dayEnd = new Date(current);
-            dayEnd.setHours(this.WORK_END_HOUR, 0, 0, 0);
+            dayEnd.setHours(workEnd.hour, workEnd.min, 0, 0);
 
             // Bỏ qua khung giờ đã qua
             const now = new Date();

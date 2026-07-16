@@ -18,9 +18,15 @@ async function bootstrap() {
         }),
     );
 
-    // CORS: cho phép frontend truy cập
+    // CORS: cho phép frontend truy cập từ localhost 
+    const allowedOrigins = ['http://localhost:5173', 'http://localhost', 'http://localhost:80'];
+    
+    if (process.env.FRONTEND_URL) {
+        allowedOrigins.push(process.env.FRONTEND_URL);
+    }
+
     app.enableCors({
-        origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+        origin: allowedOrigins,
         credentials: true,
     });
 

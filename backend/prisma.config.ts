@@ -10,7 +10,7 @@ export default defineConfig({
   },
   // Setup custom Neon config
   datasource: {
-    url: process.env["DATABASE_URL"],
+    url: process.env["DIRECT_URL"],
   },
 
 });

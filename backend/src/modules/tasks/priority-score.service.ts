@@ -66,7 +66,7 @@ export class PriorityScoreService {
         const urgency = this.calcUrgency(task.deadline);
         const importance = this.calcImportance(task.importance, task.deadline);
         const deadlinePressure = await this.calcDeadlinePressure(task);
-        const energyFit = 5; // Mặc định trung lập — cần Analytics module
+        const energyFit = await this.calcEnergyFit(task.userId);
         const procrastinationRisk = 5; // Mặc định trung lập — cần Analytics module
 
         const score =
@@ -136,5 +136,58 @@ export class PriorityScoreService {
 
         const ratio = remainingWork / timeLeftMinutes;
         return Math.min(10, Math.round(ratio * 10 * 100) / 100);
+    }
+
+    /**
+     * (4) EnergyFit — Option C Hybrid:
+     * - User có đủ data (is_cold_start=false) → dùng personalHeatmap từ behavior_profiles.peak_hours
+     * - User mới (cold start) → dùng genericEnergyCurve (circadian rhythm)
+     * - Nhân windowFactor: 1.0 nếu trong giờ làm, 0.5 nếu ngoài
+     *
+     * Điều kiện thoát cold start: total_pomodoros >= 10 AND active_days >= 3
+     * (cập nhật bởi Cron Job cuối ngày trong behavior module)
+     */
+    private async calcEnergyFit(userId: string): Promise<number> {
+        const currentHour = new Date().getHours();
+
+        // Load user preferences
+        const prefs = await this.prisma.userPreference.findUnique({ where: { userId } });
+        const [startH] = (prefs?.workStartTime ?? '09:00').split(':').map(Number);
+        const [endH] = (prefs?.workEndTime ?? '18:00').split(':').map(Number);
+
+        // Check behavior profile cho personal heatmap
+        const profile = await this.prisma.behaviorProfile.findUnique({ where: { userId } });
+
+        let score: number;
+
+        if (profile && !profile.isColdStart && profile.peakHours) {
+            // ─── Nhánh A: User có đủ data (≥10 phiên, ≥3 ngày) → dùng personalHeatmap
+            const heatmap = profile.peakHours as Record<string, number>;
+            const hourKey = currentHour.toString();
+            score = (heatmap[hourKey] ?? 0.5) * 10; // normalize 0–1 → 0–10
+        } else {
+            // ─── Nhánh B: Cold start → dùng genericCurve
+            score = this.genericEnergyCurve(currentHour);
+        }
+
+        // Window factor: trong giờ làm = 1.0, ngoài = 0.5
+        const inWorkWindow = currentHour >= startH && currentHour < endH;
+        const windowFactor = inWorkWindow ? 1.0 : 0.5;
+
+        return Math.min(10, Math.round(score * windowFactor * 100) / 100);
+    }
+
+    /**
+     * Generic energy curve dựa trên circadian rhythm.
+     * Dùng cho user mới chưa có đủ data (≥10 phiên Pomodoro, ≥3 ngày).
+     */
+    private genericEnergyCurve(hour: number): number {
+        if (hour >= 9 && hour <= 11) return 9;    // Peak morning
+        if (hour >= 14 && hour <= 16) return 7;   // Afternoon recovery
+        if (hour >= 7 && hour <= 8) return 7;     // Early morning warmup
+        if (hour >= 12 && hour <= 13) return 5;   // Post-lunch dip
+        if (hour >= 17 && hour <= 19) return 6;   // Late afternoon
+        if (hour >= 20 && hour <= 22) return 4;   // Evening wind-down
+        return 3;                                  // Night / early dawn
     }
 }

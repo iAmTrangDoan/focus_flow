@@ -1,0 +1,274 @@
+/* ─── Types ─── */
+export type TaskStatus = 'todo' | 'in_progress' | 'done';
+export type TaskType = 'flexible' | 'fixed';
+export type Priority = 'high' | 'low';
+
+export interface Subtask {
+  id: string;
+  title: string;
+  done: boolean;
+  minutes?: number;
+}
+
+export interface Task {
+  id: number;
+  title: string;
+  type: TaskType;
+  priority: Priority;
+  status: TaskStatus;
+  priorityScore: number;
+  deadline?: string;
+  fixedTime?: string;
+  subtasks: Subtask[];
+}
+
+export type ActivityType = 'task' | 'pomodoro' | 'schedule' | 'ai';
+
+export interface ActivityEvent {
+  id: number;
+  type: ActivityType;
+  title: string;
+  description: string;
+  relativeTime: string;
+}
+
+export interface UserProfile {
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  streak: number;
+}
+
+/* ─── User ─── */
+export const mockUser: UserProfile = {
+  name: 'Alex Kim',
+  email: 'alex.kim@focusflow.app',
+  avatarUrl: null,
+  streak: 5,
+};
+
+/* ─── Tasks ─── */
+export const mockTasks: Task[] = [
+  {
+    id: 1,
+    title: 'Viết báo cáo chương 2',
+    type: 'flexible',
+    priority: 'high',
+    status: 'in_progress',
+    priorityScore: 94,
+    deadline: 'Hôm nay, 17:00',
+    subtasks: [
+      { id: 's1', title: 'Thu thập dữ liệu thực nghiệm', done: true },
+      { id: 's2', title: 'Phân tích kết quả', done: true },
+      { id: 's3', title: 'Viết phần giới thiệu', done: true },
+      { id: 's4', title: 'Hoàn thiện kết luận', done: false },
+      { id: 's5', title: 'Định dạng tài liệu', done: false },
+    ],
+  },
+  {
+    id: 2,
+    title: 'Review code pull request #47',
+    type: 'flexible',
+    priority: 'high',
+    status: 'todo',
+    priorityScore: 88,
+    deadline: 'Hôm nay, 14:00',
+    subtasks: [
+      { id: 's6', title: 'Đọc diff tổng thể', done: false },
+      { id: 's7', title: 'Kiểm tra logic xử lý lỗi', done: false },
+      { id: 's8', title: 'Comment & approve', done: false },
+    ],
+  },
+  {
+    id: 3,
+    title: 'Meeting weekly team sync',
+    type: 'fixed',
+    priority: 'low',
+    status: 'todo',
+    priorityScore: 72,
+    fixedTime: 'Thứ 5, 10:00–11:00',
+    subtasks: [
+      { id: 's9', title: 'Chuẩn bị agenda', done: false, minutes: 15 },
+      { id: 's10', title: 'Ghi chú cuộc họp', done: false, minutes: 10 },
+    ],
+  },
+  {
+    id: 4,
+    title: 'Ôn thi môn Xác suất thống kê',
+    type: 'flexible',
+    priority: 'high',
+    status: 'todo',
+    priorityScore: 85,
+    deadline: 'Thứ 6, 08:00',
+    subtasks: [
+      { id: 's11', title: 'Ôn chương 1–3', done: false },
+      { id: 's12', title: 'Làm đề thi thử', done: false },
+      { id: 's13', title: 'Xem lại các dạng bài khó', done: false },
+    ],
+  },
+  {
+    id: 5,
+    title: 'Thiết kế UI màn hình onboarding',
+    type: 'flexible',
+    priority: 'high',
+    status: 'in_progress',
+    priorityScore: 67,
+    deadline: 'Thứ 4, 18:00',
+    subtasks: [
+      { id: 's14', title: 'Research competitor onboarding', done: true, minutes: 30 },
+      { id: 's15', title: 'Sketch wireframes', done: true, minutes: 45 },
+      { id: 's16', title: 'Figma prototype', done: false, minutes: 60 },
+      { id: 's17', title: 'Micro-copy & tooltips', done: false, minutes: 20 },
+    ],
+  },
+  {
+    id: 6,
+    title: 'Gửi email báo cáo tiến độ',
+    type: 'flexible',
+    priority: 'low',
+    status: 'todo',
+    priorityScore: 42,
+    deadline: 'Hôm nay, 20:00',
+    subtasks: [
+      { id: 's18', title: 'Soạn nội dung', done: false },
+      { id: 's19', title: 'Đính kèm file báo cáo', done: false },
+    ],
+  },
+  {
+    id: 7,
+    title: 'Daily standup',
+    type: 'fixed',
+    priority: 'low',
+    status: 'done',
+    priorityScore: 55,
+    fixedTime: 'Hôm nay, 09:00–09:30',
+    subtasks: [
+      { id: 's20', title: 'Cập nhật tiến độ', done: true, minutes: 5 },
+    ],
+  },
+  {
+    id: 8,
+    title: 'Đọc tài liệu React 19',
+    type: 'flexible',
+    priority: 'low',
+    status: 'done',
+    priorityScore: 30,
+    deadline: 'Hôm qua',
+    subtasks: [
+      { id: 's21', title: 'Đọc changelog', done: true },
+      { id: 's22', title: 'Thử new features', done: true },
+      { id: 's23', title: 'Ghi chú lại điểm quan trọng', done: true },
+    ],
+  },
+  {
+    id: 9,
+    title: 'Cập nhật CV & portfolio',
+    type: 'flexible',
+    priority: 'low',
+    status: 'todo',
+    priorityScore: 58,
+    deadline: 'Cuối tuần',
+    subtasks: [
+      { id: 's24', title: 'Cập nhật kinh nghiệm mới', done: false, minutes: 30 },
+      { id: 's25', title: 'Thêm project FocusFlow', done: false, minutes: 45 },
+    ],
+  },
+  {
+    id: 10,
+    title: 'Sắp xếp lại workspace',
+    type: 'flexible',
+    priority: 'low',
+    status: 'todo',
+    priorityScore: 18,
+    deadline: undefined,
+    subtasks: [],
+  },
+];
+
+/* ─── Activity Events ─── */
+export const mockActivityEvents: ActivityEvent[] = [
+  {
+    id: 1,
+    type: 'task',
+    title: "Hoàn thành task 'Viết báo cáo chương 2'",
+    description: 'Đánh dấu hoàn thành, 3/5 subtask đã xong',
+    relativeTime: '2 giờ trước',
+  },
+  {
+    id: 2,
+    type: 'pomodoro',
+    title: 'Bắt đầu phiên Pomodoro 25 phút',
+    description: "Focus task: 'Review code pull request #47'",
+    relativeTime: '3 giờ trước',
+  },
+  {
+    id: 3,
+    type: 'ai',
+    title: 'AI gợi ý 4 subtask cho task mới',
+    description: "Tự động phân rã 'Thiết kế UI onboarding' thành 4 bước",
+    relativeTime: '5 giờ trước',
+  },
+  {
+    id: 4,
+    type: 'task',
+    title: "Đánh dấu hoàn thành subtask 'Thu thập dữ liệu'",
+    description: "Thuộc task 'Viết báo cáo chương 2'",
+    relativeTime: '6 giờ trước',
+  },
+  {
+    id: 5,
+    type: 'schedule',
+    title: "Dời lịch task 'Ôn thi Xác suất'",
+    description: 'Từ Thứ 3 → Thứ 6, 08:00 do xung đột lịch họp',
+    relativeTime: 'Hôm qua',
+  },
+  {
+    id: 6,
+    type: 'pomodoro',
+    title: 'Hoàn thành 4 phiên Pomodoro liên tiếp',
+    description: 'Tổng: 1 giờ 40 phút tập trung sâu',
+    relativeTime: 'Hôm qua',
+  },
+  {
+    id: 7,
+    type: 'task',
+    title: "Tạo task mới: 'Cập nhật CV & portfolio'",
+    description: 'Deadline: Cuối tuần, Mức độ: Medium',
+    relativeTime: 'Hôm qua',
+  },
+  {
+    id: 8,
+    type: 'ai',
+    title: 'AI tái sắp xếp lịch tuần',
+    description: '3 task được chuyển ưu tiên dựa trên hành vi làm việc',
+    relativeTime: '2 ngày trước',
+  },
+  {
+    id: 9,
+    type: 'schedule',
+    title: "Thêm lịch cố định 'Weekly team sync'",
+    description: 'Thứ 5 hàng tuần, 10:00–11:00',
+    relativeTime: '2 ngày trước',
+  },
+  {
+    id: 10,
+    type: 'task',
+    title: "Hoàn thành task 'Đọc tài liệu React 19'",
+    description: '3/3 subtask hoàn thành, đúng deadline',
+    relativeTime: '3 ngày trước',
+  },
+  {
+    id: 11,
+    type: 'pomodoro',
+    title: 'Streak mới: 5 ngày làm việc liên tục',
+    description: 'Tổng 12 phiên Pomodoro trong tuần',
+    relativeTime: '3 ngày trước',
+  },
+  {
+    id: 12,
+    type: 'ai',
+    title: 'AI phân tích: Giờ cao điểm 9–11 SA',
+    description: 'Hoàn thành 40% nhiều hơn trong khung giờ này',
+    relativeTime: '4 ngày trước',
+  },
+];

@@ -2,6 +2,7 @@ import {
     Controller,
     Get,
     Post,
+    Put,
     Patch,
     Delete,
     Body,
@@ -46,6 +47,7 @@ export class TasksController {
         return this.tasksService.findOne(userId, id);
     }
 
+    @Put(':id')
     @Patch(':id')
     @ApiOperation({ summary: 'Cập nhật task' })
     update(
@@ -54,6 +56,16 @@ export class TasksController {
         @Body() dto: UpdateTaskDto,
     ) {
         return this.tasksService.update(userId, id, dto);
+    }
+
+    @Patch(':id/status')
+    @ApiOperation({ summary: 'Cập nhật nhanh trạng thái task' })
+    updateStatus(
+        @CurrentUser('id') userId: string,
+        @Param('id') id: string,
+        @Body('status') status: string,
+    ) {
+        return this.tasksService.updateStatus(userId, id, status);
     }
 
     @Delete(':id')

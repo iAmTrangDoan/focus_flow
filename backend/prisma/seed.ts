@@ -43,6 +43,31 @@ async function main() {
     }
 
     console.log(`Seeded ${defaultConfigs.length} config entries.`);
+
+    // Backfill user preferences for users who do not have them
+    console.log('Backfilling user preferences for existing users...');
+    const usersWithoutPrefs = await prisma.user.findMany({
+        where: {
+            preference: {
+                is: null,
+            },
+        },
+    });
+
+    let backfilledCount = 0;
+    for (const u of usersWithoutPrefs) {
+        await prisma.userPreference.create({
+            data: {
+                userId: u.id,
+                workStartTime: '08:00',
+                workEndTime: '22:00',
+                workDays: [1, 2, 3, 4, 5, 6, 7],
+                mainGoal: 'personal_growth',
+            },
+        });
+        backfilledCount++;
+    }
+    console.log(`Backfilled preferences for ${backfilledCount} users.`);
 }
 
 main()
@@ -53,3 +78,4 @@ main()
     .finally(async () => {
         await prisma.$disconnect();
     });
+

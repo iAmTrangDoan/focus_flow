@@ -3,6 +3,7 @@ import {
     ConflictException,
     UnauthorizedException,
     ForbiddenException,
+    BadRequestException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -39,6 +40,24 @@ export class AuthService {
                 email: dto.email,
                 passwordHash,
                 displayName: dto.displayName,
+            },
+        });
+
+        // Tạo user preferences
+        const startHHMM = this.toHHMM(dto.workStartTime) ?? '09:00';
+        const endHHMM = this.toHHMM(dto.workEndTime) ?? '18:00';
+
+        if (startHHMM >= endHHMM) {
+            throw new BadRequestException('Giờ bắt đầu phải trước giờ kết thúc');
+        }
+
+        await this.prisma.userPreference.create({
+            data: {
+                userId: user.id,
+                workStartTime: startHHMM,
+                workEndTime: endHHMM,
+                workDays: dto.workDays ?? [1, 2, 3, 4, 5],
+                mainGoal: this.normalizeGoal(dto.mainGoal) ?? 'personal_growth',
             },
         });
 
@@ -226,5 +245,38 @@ export class AuthService {
     private sanitizeUser(user: { id: string; email: string; displayName: string | null; role: string; timezone: string; isActive: boolean; createdAt: Date; updatedAt: Date; passwordHash?: string }) {
         const { passwordHash, ...sanitized } = user;
         return sanitized;
+    }
+
+    /**
+     * Convert time label ("9:00 AM", "12:00 PM", "14:30") → "HH:MM" format.
+     * Edge cases: "12:00 AM" → "00:00", "12:00 PM" → "12:00"
+     */
+    private toHHMM(label?: string): string | null {
+        if (!label) return null;
+        // Đã là HH:MM format
+        if (/^\d{2}:\d{2}$/.test(label)) return label;
+        // Parse AM/PM format
+        const match = label.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+        if (!match) return null;
+        let hour = parseInt(match[1], 10);
+        const min = match[2];
+        const period = match[3].toUpperCase();
+        if (period === 'AM' && hour === 12) hour = 0;       // 12:00 AM → 00:00
+        if (period === 'PM' && hour !== 12) hour += 12;     // 1:00 PM → 13:00
+        return `${hour.toString().padStart(2, '0')}:${min}`;
+    }
+
+    /**
+     * Normalize goal label từ frontend → key lưu DB.
+     * "Study & Learning" → "study", "Work & Career" → "career"
+     */
+    private normalizeGoal(label?: string): string | null {
+        if (!label) return null;
+        const map: Record<string, string> = {
+            'Study & Learning': 'study',
+            'Work & Career': 'career',
+            'Personal Growth': 'personal_growth',
+        };
+        return map[label] ?? label.toLowerCase().replace(/\s+/g, '_');
     }
 }

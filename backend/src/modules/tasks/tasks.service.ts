@@ -2,6 +2,7 @@ import {
     Injectable,
     NotFoundException,
     ForbiddenException,
+    BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PriorityScoreService } from './priority-score.service';
@@ -17,7 +18,7 @@ export class TasksService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly priorityScoreService: PriorityScoreService,
-    ) {}
+    ) { }
 
     async create(userId: string, dto: CreateTaskDto) {
         const task = await this.prisma.task.create({
@@ -29,16 +30,42 @@ export class TasksService {
                 importance: dto.importance,
                 focusMode: dto.focusMode,
                 estimatedMinutes: dto.estimatedMinutes,
+                isFixedTask: dto.isFixedTask ?? false,
+                fixedStart: dto.fixedStart ? new Date(dto.fixedStart) : null,
+                fixedEnd: dto.fixedEnd ? new Date(dto.fixedEnd) : null,
+                // Create inline subtasks if provided
+                ...(dto.subtasks && dto.subtasks.length > 0 && {
+                    subtasks: {
+                        create: dto.subtasks.map((s, idx) => ({
+                            title: s.title,
+                            estimatedMinutes: s.estimatedMinutes ?? s.aiEstimatedMinutes ?? null,
+                            sortOrder: idx,
+                        })),
+                    },
+                }),
             },
-            include: { subtasks: true },
+            include: { subtasks: { orderBy: { sortOrder: 'asc' } } },
         });
+
+        // If fixed task with defined times, create a manual schedule slot
+        if (task.isFixedTask && task.fixedStart && task.fixedEnd) {
+            await this.prisma.scheduleSlot.create({
+                data: {
+                    userId,
+                    taskId: task.id,
+                    startAt: task.fixedStart,
+                    endAt: task.fixedEnd,
+                    isManual: true,
+                },
+            });
+        }
 
         //Tính Priority score
         const { score } = await this.priorityScoreService.calculate(task);
         const updated = await this.prisma.task.update({
             where: { id: task.id },
             data: { priorityScore: score },
-            include: { subtasks: true },
+            include: { subtasks: { orderBy: { sortOrder: 'asc' } } },
         });
 
         return updated;
@@ -70,7 +97,7 @@ export class TasksService {
     }
 
     async update(userId: string, taskId: string, dto: UpdateTaskDto) {
-        const task = await this.ensureOwnership(userId, taskId);
+        await this.ensureOwnership(userId, taskId);
 
         const updated = await this.prisma.task.update({
             where: { id: taskId },
@@ -81,6 +108,9 @@ export class TasksService {
                 ...(dto.importance !== undefined && { importance: dto.importance }),
                 ...(dto.focusMode !== undefined && { focusMode: dto.focusMode }),
                 ...(dto.estimatedMinutes !== undefined && { estimatedMinutes: dto.estimatedMinutes }),
+                ...(dto.isFixedTask !== undefined && { isFixedTask: dto.isFixedTask }),
+                ...(dto.fixedStart !== undefined && { fixedStart: dto.fixedStart ? new Date(dto.fixedStart) : null }),
+                ...(dto.fixedEnd !== undefined && { fixedEnd: dto.fixedEnd ? new Date(dto.fixedEnd) : null }),
             },
             include: { subtasks: true },
         });
@@ -90,7 +120,35 @@ export class TasksService {
         return this.prisma.task.update({
             where: { id: taskId },
             data: { priorityScore: score },
-            include: { subtasks: true },
+            include: { subtasks: { orderBy: { sortOrder: 'asc' } } },
+        });
+    }
+
+    async updateStatus(userId: string, taskId: string, statusStr: string) {
+        await this.ensureOwnership(userId, taskId);
+
+        // Map frontend status strings to Prisma enum
+        const statusMap: Record<string, TaskStatus> = {
+            'todo': TaskStatus.TODO,
+            'in_progress': TaskStatus.IN_PROGRESS,
+            'in-progress': TaskStatus.IN_PROGRESS,
+            'done': TaskStatus.DONE,
+            'completed': TaskStatus.DONE,
+        };
+
+        const status = statusMap[statusStr];
+        if (!status) {
+            throw new BadRequestException(`Trạng thái không hợp lệ: ${statusStr}`);
+        }
+
+        return this.prisma.task.update({
+            where: { id: taskId },
+            data: {
+                status,
+                ...(status === TaskStatus.DONE && { completedAt: new Date() }),
+                ...(status !== TaskStatus.DONE && { completedAt: null }),
+            },
+            include: { subtasks: { orderBy: { sortOrder: 'asc' } } },
         });
     }
 

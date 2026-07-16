@@ -9,6 +9,7 @@ import { TasksModule } from './modules/tasks/tasks.module';
 import { SchedulerModule } from './modules/scheduler/scheduler.module';
 import { PomodoroModule } from './modules/pomodoro/pomodoro.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { PreferencesModule } from './modules/preferences/preferences.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { AdminModule } from './modules/admin/admin.module';
     SchedulerModule,
     PomodoroModule,
     AdminModule,
+    PreferencesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
