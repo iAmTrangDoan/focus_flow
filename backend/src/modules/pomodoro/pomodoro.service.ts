@@ -6,10 +6,14 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PomodoroStatus, PomodoroSessionType, FocusMode } from '@prisma/client';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class PomodoroService {
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly notificationService: NotificationService,
+    ) {}
 
     /**
      * Bắt đầu phiên Pomodoro mới.
@@ -115,7 +119,7 @@ export class PomodoroService {
             (now.getTime() - session.startedAt.getTime()) / (1000 * 60),
         );
 
-        return this.prisma.pomodoroSession.update({
+        const updated = await this.prisma.pomodoroSession.update({
             where: { id: sessionId },
             data: {
                 status: PomodoroStatus.COMPLETED,
@@ -124,6 +128,17 @@ export class PomodoroService {
             },
             include: { task: { select: { id: true, title: true } } },
         });
+
+        // Tạo thông báo hoàn thành Pomodoro
+        const taskTitle = updated.task?.title ?? 'Công việc';
+        await this.notificationService.createNotification(
+            userId,
+            'pomodoro',
+            'Hoàn thành Pomodoro!',
+            `Bạn đã hoàn thành phiên tập trung ${actualDuration} phút cho task "${taskTitle}".`
+        );
+
+        return updated;
     }
 
     async cancelSession(userId: string, sessionId: string) {
@@ -137,14 +152,26 @@ export class PomodoroService {
             (now.getTime() - session.startedAt.getTime()) / (1000 * 60),
         );
 
-        return this.prisma.pomodoroSession.update({
+        const updated = await this.prisma.pomodoroSession.update({
             where: { id: sessionId },
             data: {
                 status: PomodoroStatus.CANCELLED,
                 endedAt: now,
                 actualDuration,
             },
+            include: { task: { select: { id: true, title: true } } },
         });
+
+        // Tạo thông báo hủy Pomodoro
+        const taskTitle = updated.task?.title ?? 'Công việc';
+        await this.notificationService.createNotification(
+            userId,
+            'pomodoro',
+            'Đã hủy phiên Pomodoro',
+            `Phiên tập trung cho task "${taskTitle}" đã bị dừng giữa chừng.`
+        );
+
+        return updated;
     }
 
     async quickFeedback(userId: string, sessionId: string, reason: string) {

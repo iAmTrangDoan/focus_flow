@@ -13,8 +13,8 @@ import {
   Menu,
   X,
   LogOut,
-  // Bell,
-  // HelpCircle
+  Bell,
+  HelpCircle,
 } from 'lucide-react';
 import useAuthStore from '../../store/authStore';
 
@@ -48,21 +48,23 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       items: [
         { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
         { icon: KanbanSquare, label: 'Task Board', path: '/tasks' },
-        { icon: CalendarDays, label: 'Schedule', path: '/calendar' },
-        { icon: Timer, label: 'Pomodoro Sessions', path: '/focus', badge: '3' },
+        { icon: CalendarDays, label: 'Schedule', path: '/schedule' },
+        { icon: Timer, label: 'Pomodoro Sessions', path: '/focus' },
       ],
     },
     {
       title: 'Tools',
       items: [
         { icon: BarChart2, label: 'Analytics', path: '/analytics' },
-        { icon: Sparkles, label: 'AI Planner', path: '/ai-planner', badge: 'New' },
+        { icon: Sparkles, label: 'AI Insights', path: '/ai-insights', badge: 'New' },
+        { icon: Bell, label: 'Thông báo', path: '/notifications', dot: true },
       ],
     },
     {
       title: 'Other',
       items: [
         { icon: Settings, label: 'Settings', path: '/settings' },
+        { icon: HelpCircle, label: 'Help & Support', path: '/help' },
         { icon: LogOut, label: 'Đăng xuất', path: '#', action: handleLogout },
       ],
     },

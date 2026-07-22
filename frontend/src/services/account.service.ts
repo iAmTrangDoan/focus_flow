@@ -61,16 +61,22 @@ const accountService = {
     return (data.items ?? []).map(mapActivity)
   },
 
-  /** Cập nhật thông tin hồ sơ (tên, avatarUrl) */
-  async updateProfile(payload: { name: string; avatarUrl?: string | null }): Promise<void> {
-    await api.put('/account/me', { displayName: payload.name, avatarUrl: payload.avatarUrl })
+  /** Lấy thông tin profile của user hiện tại */
+  async getProfile(): Promise<{ id: string; email: string; displayName: string; role: string }> {
+    const { data } = await api.get<any>('/account/me')
+    return data
+  },
+
+  /** Cập nhật thông tin hồ sơ (displayName) */
+  async updateProfile(payload: { displayName: string }): Promise<void> {
+    await api.put('/account/me', { displayName: payload.displayName })
   },
 
   /** Đổi mật khẩu */
   async changePassword(payload: { current: string; next: string }): Promise<void> {
     await api.put('/account/password', {
-      currentPassword: payload.current,
-      newPassword: payload.next,
+      current: payload.current,
+      next: payload.next,
     })
   },
 }

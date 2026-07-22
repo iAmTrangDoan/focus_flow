@@ -117,12 +117,12 @@ const tasksService = {
   },
 
   /** Gọi AI gợi ý phân rã subtask */
-  async getAiSuggestedSubtasks(title: string): Promise<{ title: string; aiEstimatedMinutes: number }[]> {
+  async getAiSuggestedSubtasks(title: string, deadline?: string, importance?: string): Promise<{ title: string; aiEstimatedMinutes: number }[]> {
     const { data } = await api.post<{ subtasks: { title: string; aiEstimatedMinutes: number }[] }>(
-      '/tasks/ai-suggest-subtasks',
-      { title }
+      '/ai/suggest-subtasks',
+      { taskTitle: title, deadline, eisenhowerQuadrant: importance }
     )
-    return data.subtasks
+    return data.subtasks || []
   },
 }
 

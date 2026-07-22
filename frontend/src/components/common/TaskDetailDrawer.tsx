@@ -2,8 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import {
   X, Circle, Trash2, Plus, ChevronUp, ChevronDown,
   Clock, Calendar, Timer, AlertCircle, Pencil, Check,
+  Wand2, Loader2,
 } from 'lucide-react';
 import type { Task, TaskType, Importance } from '../../types';
+import tasksService from '../../services/tasks.service';
 
 /* ─── Confetti particle ─── */
 interface Particle { id: number; x: number; y: number; color: string; angle: number; speed: number; size: number }
@@ -51,9 +53,9 @@ function Confetti({ active }: { active: boolean }) {
 function ScoreRingLarge({ score, label }: { score: number; label: string }) {
   const r = 44;
   const circ = 2 * Math.PI * r;
-  const offset = circ * (1 - score / 100);
-  const color = score >= 80 ? '#C1644C' : score >= 50 ? '#B8860B' : '#4A7FB8';
-  const ringColor = score >= 80 ? '#5FAF6E' : score >= 50 ? '#B8860B' : '#9CA3AF';
+  const offset = circ * (1 - score / 10);
+  const color = score >= 8 ? '#C1644C' : score >= 5 ? '#B8860B' : '#4A7FB8';
+  const ringColor = score >= 8 ? '#5FAF6E' : score >= 5 ? '#B8860B' : '#9CA3AF';
   return (
     <div className="flex items-center gap-5 px-5 py-4 rounded-2xl" style={{ background: '#F4FAF4', border: '1.5px solid #E8F5E8' }}>
       <div className="relative flex items-center justify-center shrink-0" style={{ width: 100, height: 100 }}>
@@ -67,16 +69,16 @@ function ScoreRingLarge({ score, label }: { score: number; label: string }) {
         </svg>
         <div className="absolute flex flex-col items-center">
           <span className="text-2xl font-bold" style={{ color: '#243024' }}>{score}</span>
-          <span className="text-xs" style={{ color: '#9CA3AF' }}>/100</span>
+          <span className="text-xs" style={{ color: '#9CA3AF' }}>/10</span>
         </div>
       </div>
       <div>
         <p className="text-sm font-bold mb-1" style={{ color: '#243024' }}>Priority Score</p>
-        <span className="inline-block text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: score >= 80 ? '#F6D8C7' : score >= 50 ? '#F7E7A8' : '#DCECF8', color }}>
+        <span className="inline-block text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: score >= 8 ? '#F6D8C7' : score >= 5 ? '#F7E7A8' : '#DCECF8', color }}>
           {label}
         </span>
         <p className="text-xs mt-2 leading-relaxed" style={{ color: '#5F6E5F' }}>
-          {score >= 80 ? 'Ưu tiên cao — gần deadline' : score >= 50 ? 'Mức trung bình — cần theo dõi' : 'Ưu tiên thấp — có thể hoãn lại'}
+          {score >= 8 ? 'Ưu tiên cao — gần deadline' : score >= 5 ? 'Mức trung bình — cần theo dõi' : 'Ưu tiên thấp — có thể hoãn lại'}
         </p>
       </div>
     </div>
@@ -87,6 +89,14 @@ function ScoreRingLarge({ score, label }: { score: number; label: string }) {
 /** ISO string → value cho input[type=datetime-local]: "YYYY-MM-DDTHH:mm" */
 function isoToDatetimeLocal(iso: string | undefined | null): string {
   if (!iso) return '';
+
+  // Handle already-formatted "dd/mm/yyyy, HH:mm" format from backend
+  const match = iso.match(/^(\d{2})\/(\d{2})\/(\d{4}),\s*(\d{2}):(\d{2})$/);
+  if (match) {
+    const [, dd, mm, yyyy, HH, min] = match;
+    return `${yyyy}-${mm}-${dd}T${HH}:${min}`;
+  }
+
   const d = new Date(iso);
   if (isNaN(d.getTime())) return '';
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -120,6 +130,8 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
   const [editingTitle, setEditingTitle] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [confettiOn, setConfettiOn] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
 
   /* Sync draft when task changes */
@@ -128,7 +140,48 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
     setEditingTitle(false);
     setShowDeleteConfirm(false);
     setConfettiOn(false);
+    setAiLoading(false);
+    setAiError(null);
   }, [task]);
+
+  const aiLoadingRef = useRef(false);
+
+  const handleAI = async () => {
+    if (!draft || !draft.title.trim() || aiLoadingRef.current) return;
+    aiLoadingRef.current = true;
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const suggested = await tasksService.getAiSuggestedSubtasks(
+        draft.title.trim(),
+        draft.deadline || undefined,
+        draft.importance
+      );
+      setDraft((d) => {
+        if (!d) return null;
+        const existingTitles = new Set(d.subtasks.map(s => s.title.toLowerCase().trim()));
+        const newSubtasks = suggested
+          .filter(s => !existingTitles.has(s.title.toLowerCase().trim()))
+          .map((s, i) => ({
+            id: `ai-${Date.now()}-${i}`,
+            taskId: d.id,
+            title: s.title,
+            done: false,
+            estimatedMinutes: s.aiEstimatedMinutes,
+          }));
+        return {
+          ...d,
+          subtasks: [...d.subtasks, ...newSubtasks],
+        };
+      });
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || 'AI tạm thời không khả dụng.';
+      setAiError(msg);
+    } finally {
+      aiLoadingRef.current = false;
+      setAiLoading(false);
+    }
+  };
 
   /* Body scroll lock */
   useEffect(() => {
@@ -409,6 +462,39 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
                   style={{ width: `${pct}%`, background: '#5FAF6E' }}
                 />
               </div>
+            )}
+
+            {/* AI suggest button */}
+            <button
+              type="button"
+              onClick={handleAI}
+              disabled={!draft.title.trim() || aiLoading}
+              className="w-full mb-3 flex items-center justify-center gap-2.5 px-4 py-3.5 rounded-xl text-sm font-semibold transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed relative overflow-hidden"
+              style={{
+                background: aiLoading
+                  ? '#F4FAF4'
+                  : 'linear-gradient(135deg, #E8F5E9 0%, #F0FBF0 50%, #E3F4E3 100%)',
+                color: '#5FAF6E',
+                border: '1.5px dashed rgba(95,175,110,0.5)',
+              }}
+            >
+              {aiLoading && (
+                <div
+                  className="absolute inset-0 animate-pulse"
+                  style={{ background: 'linear-gradient(90deg, transparent 0%, rgba(95,175,110,0.08) 50%, transparent 100%)' }}
+                />
+              )}
+              {aiLoading ? (
+                <><Loader2 size={16} className="animate-spin" /> AI đang gợi ý...</>
+              ) : (
+                <><Wand2 size={16} /> ✨ Gợi ý công việc con bằng AI</>
+              )}
+            </button>
+
+            {aiError && (
+              <p className="text-xs mb-2 flex items-center gap-1.5" style={{ color: '#C1644C' }}>
+                <span>⚠️</span> {aiError} Bạn có thể tự thêm công việc con bên dưới.
+              </p>
             )}
 
             <div className="flex flex-col gap-1.5">

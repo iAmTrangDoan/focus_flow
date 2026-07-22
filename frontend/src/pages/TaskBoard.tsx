@@ -59,8 +59,8 @@ const statusLabels: Record<TaskStatus, string> = {
 function MiniScoreRing({ score }: { score: number }) {
   const r = 16;
   const circ = 2 * Math.PI * r;
-  const offset = circ * (1 - score / 100);
-  const color = score >= 80 ? '#C1644C' : score >= 50 ? '#B8860B' : '#4A7FB8';
+  const offset = circ * (1 - score / 10);
+  const color = score >= 8 ? '#C1644C' : score >= 5 ? '#B8860B' : '#4A7FB8';
   return (
     <div className="relative flex items-center justify-center shrink-0" style={{ width: 44, height: 44 }}>
       <svg width={44} height={44} style={{ transform: 'rotate(-90deg)' }}>

@@ -9,12 +9,22 @@ import Dashboard from './pages/Dashboard'
 import LandingPage from './pages/Landing'
 import TaskBoardPage from './pages/TaskBoard'
 import ProfilePage from './pages/Profile'
+import AIInsightsPage from './pages/AIInsights'
+import FocusSessionsPage from './pages/FocusSession'
+import AnalyticsPage from './pages/Analytics'
+import SchedulePage from './pages/Schedule'
+import SettingsPage from './pages/Settings'
+import NotificationsPage from './pages/Notifications'
 
 // Components
 import ProtectedRoute from './components/common/ProtectedRoute'
 import DashboardLayout from './components/common/Sidebar'
 import { ToastContainer, type ToastMessage } from './components/common/Toast'
 import type { UserProfile } from './types'
+import { HelpCircle } from 'lucide-react'
+
+import socketService from './services/socket.service'
+import { createToast } from './components/common/Toast'
 
 export default function App() {
   const initFromStorage = useAuthStore((s) => s.initFromStorage)
@@ -36,6 +46,27 @@ export default function App() {
   useEffect(() => {
     initFromStorage()
   }, [initFromStorage])
+
+  // Connect socket when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      const token = localStorage.getItem('accessToken')
+      if (token) {
+        socketService.connect(token)
+        // Lắng nghe realtime notifications
+        socketService.onNotification((data: any) => {
+          addToast(createToast('success', `🔔 ${data.title}: ${data.description}`))
+        })
+      }
+    } else {
+      socketService.disconnect()
+    }
+
+    return () => {
+      socketService.disconnect()
+    }
+  }, [isAuthenticated, addToast])
+
 
   // Adapter for UserProfile
   const profileUser: UserProfile = {
@@ -128,85 +159,87 @@ export default function App() {
             }
           />
 
-          {/* Placeholder routes for future pages */}
+          {/* Schedule */}
           <Route
-            path="/calendar"
+            path="/schedule"
             element={
               <ProtectedRoute>
                 <DashboardLayout>
-                  <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-6">
-                    <div
-                      className="flex items-center justify-center rounded-3xl mb-5"
-                      style={{ width: 72, height: 72, background: '#DDF3DF' }}
-                    >
-                      <span className="text-3xl">🚧</span>
-                    </div>
-                    <h2 className="text-xl font-bold mb-2" style={{ color: '#243024' }}>Lịch trình</h2>
-                    <p className="text-sm" style={{ color: '#5F6E5F' }}>Tính năng này đang được phát triển.</p>
-                  </div>
+                  <SchedulePage onToast={addToast} />
                 </DashboardLayout>
               </ProtectedRoute>
             }
           />
+
+          {/* Keep /calendar as alias for schedule for backward compat */}
+          <Route path="/calendar" element={<Navigate to="/schedule" replace />} />
+
+          {/* Focus (Pomodoro) */}
           <Route
             path="/focus"
             element={
               <ProtectedRoute>
                 <DashboardLayout>
-                  <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-6">
-                    <div
-                      className="flex items-center justify-center rounded-3xl mb-5"
-                      style={{ width: 72, height: 72, background: '#DDF3DF' }}
-                    >
-                      <span className="text-3xl">🚧</span>
-                    </div>
-                    <h2 className="text-xl font-bold mb-2" style={{ color: '#243024' }}>Pomodoro Sessions</h2>
-                    <p className="text-sm" style={{ color: '#5F6E5F' }}>Tính năng này đang được phát triển.</p>
-                  </div>
+                  <FocusSessionsPage onToast={addToast} />
                 </DashboardLayout>
               </ProtectedRoute>
             }
           />
+
+          {/* AI Insights */}
           <Route
-            path="/ai-planner"
+            path="/ai-insights"
             element={
               <ProtectedRoute>
                 <DashboardLayout>
-                  <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-6">
-                    <div
-                      className="flex items-center justify-center rounded-3xl mb-5"
-                      style={{ width: 72, height: 72, background: '#DDF3DF' }}
-                    >
-                      <span className="text-3xl">🚧</span>
-                    </div>
-                    <h2 className="text-xl font-bold mb-2" style={{ color: '#243024' }}>AI Insights</h2>
-                    <p className="text-sm" style={{ color: '#5F6E5F' }}>Tính năng này đang được phát triển.</p>
-                  </div>
+                  <AIInsightsPage onToast={addToast} />
                 </DashboardLayout>
               </ProtectedRoute>
             }
           />
+
+          {/* Keep /ai-planner as alias */}
+          <Route path="/ai-planner" element={<Navigate to="/ai-insights" replace />} />
+
+          {/* Analytics */}
           <Route
             path="/analytics"
             element={
               <ProtectedRoute>
                 <DashboardLayout>
-                  <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-6">
-                    <div
-                      className="flex items-center justify-center rounded-3xl mb-5"
-                      style={{ width: 72, height: 72, background: '#DDF3DF' }}
-                    >
-                      <span className="text-3xl">🚧</span>
-                    </div>
-                    <h2 className="text-xl font-bold mb-2" style={{ color: '#243024' }}>Analytics</h2>
-                    <p className="text-sm" style={{ color: '#5F6E5F' }}>Tính năng này đang được phát triển.</p>
-                  </div>
+                  <AnalyticsPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }
           />
+
+          {/* Notifications */}
+          <Route
+            path="/notifications"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <NotificationsPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Settings */}
           <Route
             path="/settings"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <SettingsPage onToast={addToast} />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Help & Support Placeholder */}
+          <Route
+            path="/help"
             element={
               <ProtectedRoute>
                 <DashboardLayout>
@@ -215,10 +248,12 @@ export default function App() {
                       className="flex items-center justify-center rounded-3xl mb-5"
                       style={{ width: 72, height: 72, background: '#DDF3DF' }}
                     >
-                      <span className="text-3xl">🚧</span>
+                      <HelpCircle size={36} style={{ color: '#5FAF6E' }} />
                     </div>
-                    <h2 className="text-xl font-bold mb-2" style={{ color: '#243024' }}>Cài đặt</h2>
-                    <p className="text-sm" style={{ color: '#5F6E5F' }}>Tính năng này đang được phát triển.</p>
+                    <h2 className="text-xl font-bold mb-2" style={{ color: '#243024' }}>Trợ giúp & Hỗ trợ</h2>
+                    <p className="text-sm max-w-md" style={{ color: '#5F6E5F' }}>
+                      Cảm ơn bạn đã sử dụng FocusFlow. Nếu bạn gặp bất kỳ khó khăn nào hoặc có góp ý, xin vui lòng gửi email về <a href="mailto:support@focusflow.com" className="font-semibold underline" style={{ color: '#5FAF6E' }}>support@focusflow.com</a>.
+                    </p>
                   </div>
                 </DashboardLayout>
               </ProtectedRoute>

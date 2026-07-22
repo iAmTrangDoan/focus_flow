@@ -6,10 +6,14 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FocusMode } from '@prisma/client';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class SchedulerService {
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly notificationService: NotificationService,
+    ) {}
 
     /**
      * Greedy Scheduling: tạo lịch tuần cho user.
@@ -127,6 +131,15 @@ export class SchedulerService {
             orderBy: { startAt: 'asc' },
         });
 
+        // Tạo thông báo lịch tuần tự động
+        await this.notificationService.createNotification(
+            userId,
+            'schedule',
+            'Lên lịch tuần hoàn tất',
+            `Đã sắp xếp ${createdSlots.length} task vào lịch tuần mới theo mức độ ưu tiên tối ưu.`,
+            'view_details'
+        );
+
         return { slots: createdSlots };
     }
 
@@ -154,7 +167,7 @@ export class SchedulerService {
 
         return this.prisma.scheduleSlot.findMany({
             where,
-            include: { task: { select: { id: true, title: true, status: true } } },
+            include: { task: { select: { id: true, title: true, status: true, importance: true, isFixedTask: true } } },
             orderBy: { startAt: 'asc' },
         });
     }
@@ -186,7 +199,7 @@ export class SchedulerService {
         return this.prisma.scheduleSlot.update({
             where: { id: slotId },
             data: { startAt: newStart, endAt: newEnd, isManual: true },
-            include: { task: { select: { id: true, title: true } } },
+            include: { task: { select: { id: true, title: true, status: true, importance: true, isFixedTask: true } } },
         });
     }
 
@@ -222,7 +235,18 @@ export class SchedulerService {
             where: { userId, startAt: { gte: now }, isManual: false },
         });
 
-        return this.generateWeekly(userId);
+        const result = await this.generateWeekly(userId);
+
+        // Tạo thông báo tái cấu trúc
+        await this.notificationService.createNotification(
+            userId,
+            'schedule',
+            'Tái cấu trúc một chạm hoàn tất',
+            `Đã tái cấu trúc lại lịch tuần của bạn từ thời điểm hiện tại (+1 Reschedule Penalty).`,
+            'view_details'
+        );
+
+        return result;
     }
 
     // ─── HELPERS ───────────────────────────────────────────────

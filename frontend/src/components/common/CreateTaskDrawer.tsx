@@ -35,7 +35,7 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
   const [endTime, setEndTime] = useState('');
   const [subtasks, setSubtasks] = useState<(Subtask & { estimatedMinutes: number })[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const [typeVisible, setTypeVisible] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
 
@@ -68,18 +68,21 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
   const reset = () => {
     setTitle(''); setType('flexible'); setImportance('HIGH');
     setDeadline(''); setDate(''); setStartTime(''); setEndTime('');
-    setSubtasks([]); setAiLoading(false); setAiError(false); setTypeVisible(false);
+    setSubtasks([]); setAiLoading(false); setAiError(null); setTypeVisible(false);
   };
 
   const handleClose = () => { reset(); onClose(); };
 
+  const aiLoadingRef = useRef(false);
+
   const handleAI = async () => {
-    if (!title.trim() || aiLoading) return;
+    if (!title.trim() || aiLoadingRef.current) return;
+    aiLoadingRef.current = true;
     setAiLoading(true);
     setSubtasks([]);
-    setAiError(false);
+    setAiError(null);
     try {
-      const suggested = await tasksService.getAiSuggestedSubtasks(title.trim());
+      const suggested = await tasksService.getAiSuggestedSubtasks(title.trim(), deadline || undefined, importance);
       setSubtasks(
         suggested.map((s, i) => ({
           id: `ai-${Date.now()}-${i}`,
@@ -88,10 +91,12 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
           estimatedMinutes: s.aiEstimatedMinutes,
         }))
       );
-    } catch {
-      setAiError(true);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || 'AI tạm thời không khả dụng.';
+      setAiError(msg);
       setSubtasks([]);
     } finally {
+      aiLoadingRef.current = false;
       setAiLoading(false);
     }
   };
@@ -323,7 +328,7 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
               {/* AI error notice */}
               {aiError && !aiLoading && (
                 <p className="text-xs mb-2 flex items-center gap-1.5" style={{ color: '#C1644C' }}>
-                  <span>⚠️</span> AI tạm thời không khả dụng. Bạn có thể tự thêm công việc con bên dưới.
+                  <span>⚠️</span> {aiError} Bạn có thể tự thêm công việc con bên dưới.
                 </p>
               )}
               {/* AI Skeleton */}

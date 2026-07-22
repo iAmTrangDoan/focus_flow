@@ -10,6 +10,11 @@ import { SchedulerModule } from './modules/scheduler/scheduler.module';
 import { PomodoroModule } from './modules/pomodoro/pomodoro.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { PreferencesModule } from './modules/preferences/preferences.module';
+import { AccountModule } from './modules/account/account.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { AiModule } from './modules/ai/ai.module';
+import { NotificationModule } from './modules/notification/notification.module';
+import { AiDemoModule } from './modules/ai-demo/ai-demo.module';
 
 @Module({
   imports: [
@@ -22,10 +27,16 @@ import { PreferencesModule } from './modules/preferences/preferences.module';
     PomodoroModule,
     AdminModule,
     PreferencesModule,
+    AccountModule,
+    AnalyticsModule,
+    AiModule,
+    NotificationModule,
+    AiDemoModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
 export class AppModule { }
+
 
 

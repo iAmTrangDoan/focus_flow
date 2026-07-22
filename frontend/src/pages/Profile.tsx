@@ -319,7 +319,7 @@ export default function ProfilePage({ user, onUserChange, onToast }: ProfilePage
   const handleSave = async () => {
     if (!isDirty) return;
     try {
-      await accountService.updateProfile({ name: draftName.trim(), avatarUrl: avatarPreview });
+      await accountService.updateProfile({ displayName: draftName.trim() });
       onUserChange({ ...user, name: draftName.trim(), avatarUrl: avatarPreview });
       setEditingName(false);
       onToast(createToast('success', 'Thông tin cá nhân đã được lưu!'));

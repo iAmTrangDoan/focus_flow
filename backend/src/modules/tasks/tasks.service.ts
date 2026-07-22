@@ -26,13 +26,13 @@ export class TasksService {
                 userId,
                 title: dto.title,
                 description: dto.description,
-                deadline: dto.deadline ? new Date(dto.deadline) : null,
+                deadline: parseIncomingDate(dto.deadline),
                 importance: dto.importance,
                 focusMode: dto.focusMode,
                 estimatedMinutes: dto.estimatedMinutes,
                 isFixedTask: dto.isFixedTask ?? false,
-                fixedStart: dto.fixedStart ? new Date(dto.fixedStart) : null,
-                fixedEnd: dto.fixedEnd ? new Date(dto.fixedEnd) : null,
+                fixedStart: parseIncomingDate(dto.fixedStart),
+                fixedEnd: parseIncomingDate(dto.fixedEnd),
                 // Create inline subtasks if provided
                 ...(dto.subtasks && dto.subtasks.length > 0 && {
                     subtasks: {
@@ -68,11 +68,11 @@ export class TasksService {
             include: { subtasks: { orderBy: { sortOrder: 'asc' } } },
         });
 
-        return updated;
+        return this.mapTaskResponse(updated);
     }
 
     async findAll(userId: string, query: QueryTaskDto) {
-        return this.prisma.task.findMany({
+        const tasks = await this.prisma.task.findMany({
             where: {
                 userId,
                 ...(query.status && { status: query.status }),
@@ -80,6 +80,7 @@ export class TasksService {
             include: { subtasks: { orderBy: { sortOrder: 'asc' } } },
             orderBy: { priorityScore: 'desc' },
         });
+        return tasks.map(t => this.mapTaskResponse(t));
     }
 
     async findOne(userId: string, taskId: string) {
@@ -93,7 +94,7 @@ export class TasksService {
 
         // Trả kèm priority score breakdown
         const { breakdown } = await this.priorityScoreService.calculate(task);
-        return { ...task, priorityBreakdown: breakdown };
+        return { ...this.mapTaskResponse(task), priorityBreakdown: breakdown };
     }
 
     async update(userId: string, taskId: string, dto: UpdateTaskDto) {
@@ -104,24 +105,25 @@ export class TasksService {
             data: {
                 ...(dto.title !== undefined && { title: dto.title }),
                 ...(dto.description !== undefined && { description: dto.description }),
-                ...(dto.deadline !== undefined && { deadline: dto.deadline ? new Date(dto.deadline) : null }),
+                ...(dto.deadline !== undefined && { deadline: parseIncomingDate(dto.deadline) }),
                 ...(dto.importance !== undefined && { importance: dto.importance }),
                 ...(dto.focusMode !== undefined && { focusMode: dto.focusMode }),
                 ...(dto.estimatedMinutes !== undefined && { estimatedMinutes: dto.estimatedMinutes }),
                 ...(dto.isFixedTask !== undefined && { isFixedTask: dto.isFixedTask }),
-                ...(dto.fixedStart !== undefined && { fixedStart: dto.fixedStart ? new Date(dto.fixedStart) : null }),
-                ...(dto.fixedEnd !== undefined && { fixedEnd: dto.fixedEnd ? new Date(dto.fixedEnd) : null }),
+                ...(dto.fixedStart !== undefined && { fixedStart: parseIncomingDate(dto.fixedStart) }),
+                ...(dto.fixedEnd !== undefined && { fixedEnd: parseIncomingDate(dto.fixedEnd) }),
             },
             include: { subtasks: true },
         });
 
         // Tính lại priority score
         const { score } = await this.priorityScoreService.calculate(updated);
-        return this.prisma.task.update({
+        const finalUpdated = await this.prisma.task.update({
             where: { id: taskId },
             data: { priorityScore: score },
             include: { subtasks: { orderBy: { sortOrder: 'asc' } } },
         });
+        return this.mapTaskResponse(finalUpdated);
     }
 
     async updateStatus(userId: string, taskId: string, statusStr: string) {
@@ -141,7 +143,7 @@ export class TasksService {
             throw new BadRequestException(`Trạng thái không hợp lệ: ${statusStr}`);
         }
 
-        return this.prisma.task.update({
+        const updated = await this.prisma.task.update({
             where: { id: taskId },
             data: {
                 status,
@@ -150,6 +152,7 @@ export class TasksService {
             },
             include: { subtasks: { orderBy: { sortOrder: 'asc' } } },
         });
+        return this.mapTaskResponse(updated);
     }
 
     async remove(userId: string, taskId: string) {
@@ -179,7 +182,7 @@ export class TasksService {
             }),
         ]);
 
-        return task;
+        return this.mapTaskResponse(task);
     }
 
     //Subtask
@@ -275,4 +278,63 @@ export class TasksService {
         if (task.userId !== userId) throw new ForbiddenException('Không có quyền truy cập task này');
         return task;
     }
+
+    private mapTaskResponse(task: any) {
+        if (!task) return null;
+        return {
+            ...task,
+            deadline: task.deadline ? formatDateTime(task.deadline) : null,
+            fixedStart: task.fixedStart ? formatDateTime(task.fixedStart) : null,
+            fixedEnd: task.fixedEnd ? formatDateTime(task.fixedEnd) : null,
+        };
+    }
+}
+
+/* Format date dd/mm/yyyy, HH:mm using target timezone */
+export function formatDateTime(value: Date | string | undefined | null, timezone = 'Asia/Ho_Chi_Minh'): string {
+    if (!value) return '';
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return '';
+    try {
+        const formatter = new Intl.DateTimeFormat('vi-VN', {
+            timeZone: timezone,
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        });
+        const parts = formatter.formatToParts(d);
+        const partMap = new Map(parts.map(p => [p.type, p.value]));
+        const day = partMap.get('day');
+        const month = partMap.get('month');
+        const year = partMap.get('year');
+        const hour = partMap.get('hour');
+        const minute = partMap.get('minute');
+        return `${day}/${month}/${year}, ${hour}:${minute}`;
+    } catch (e) {
+        const dd = String(d.getUTCDate()).padStart(2, '0');
+        const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const yyyy = d.getUTCFullYear();
+        const HH = String(d.getUTCHours()).padStart(2, '0');
+        const min = String(d.getUTCMinutes()).padStart(2, '0');
+        return `${dd}/${mm}/${yyyy}, ${HH}:${min}`;
+    }
+}
+
+/* Parse date from ISO string or "dd/mm/yyyy, HH:mm" format */
+export function parseIncomingDate(value: string | Date | undefined | null): Date | null {
+    if (!value) return null;
+    if (value instanceof Date) return value;
+    
+    // Try matching "dd/mm/yyyy, HH:mm"
+    const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4}),\s*(\d{2}):(\d{2})$/);
+    if (match) {
+        const [, dd, mm, yyyy, HH, min] = match;
+        return new Date(Number(yyyy), Number(mm) - 1, Number(dd), Number(HH), Number(min));
+    }
+    
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? null : d;
 }
