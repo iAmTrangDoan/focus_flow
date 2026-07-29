@@ -1,18 +1,23 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { EventType, ProcrastinationClassification } from '@prisma/client';
+import { EventType, Prisma, ProcrastinationClassification } from '@prisma/client';
+import { Cron } from '@nestjs/schedule';
+import { NotificationService } from '../notification/notification.service';
+import { NotificationGateway } from '../notification/notification.gateway';
 
 @Injectable()
 export class AnalyticsService {
-    constructor(private readonly prisma: PrismaService) {}
+    private readonly logger = new Logger(AnalyticsService.name);
+
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly notificationService: NotificationService,
+        private readonly notificationGateway: NotificationGateway,
+    ) {}
 
     // ─── PROCRASTINATION SCORE ──────────────────────────────────
 
-    /**
-     * Lấy Procrastination Score theo ngày.
-     * Nếu đã có trong DB → trả về ngay.
-     * Nếu chưa có → tính toán và lưu vào DB.
-     */
+
     async getProcrastinationScore(userId: string, date: string) {
         const match = date.match(/^(\d{4})-(\d{2})-(\d{2})/);
         let targetDate: Date;
@@ -31,70 +36,107 @@ export class AnalyticsService {
             },
         });
 
-        if (existing) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        if (existing && targetDate.getTime() !== today.getTime()) {
             return this.formatScoreResult(existing);
         }
 
-        // Chưa có → tính toán
+        // Ngày hiện tại luôn được tính lại 
         return this.calculateAndSave(userId, targetDate);
     }
 
-    /**
-     * Tính toán Procrastination Score từ behavior_logs và lưu vào DB.
-     */
+
+    // Tính toán Procrastination Score từ behavior_logs 
+
     private async calculateAndSave(userId: string, targetDate: Date) {
-        // Lấy trọng số từ system_configs
         const weights = await this.loadWeights();
 
-        // Kỳ quan sát: [targetDate - periodDays, targetDate]
+        // Snapshot của ngày hiện tại dùng dữ liệu đến thời điểm gọi API.
+        // Snapshot ngày quá khứ dùng hết ngày đó 
+
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const observationEnd =
+            targetDate.getTime() === todayStart.getTime()
+                ? new Date()
+                : new Date(
+                      targetDate.getFullYear(),
+                      targetDate.getMonth(),
+                      targetDate.getDate(),
+                      23,
+                      59,
+                      59,
+                      999,
+                  );
+
         const periodDays = weights.periodDays;
-        const periodStart = new Date(targetDate);
+        const periodStart = new Date(observationEnd);
         periodStart.setDate(periodStart.getDate() - periodDays);
+        periodStart.setHours(0, 0, 0, 0);
 
-        // Lấy behavior_logs trong kỳ quan sát
-        const logs = await this.prisma.behaviorLog.findMany({
-            where: {
-                userId,
-                occurredAt: { gte: periodStart, lte: targetDate },
-            },
-        });
+        const [logs, tasks, dueSlotCount, deadlineTasks] = await Promise.all([
+            this.prisma.behaviorLog.findMany({
+                where: {
+                    userId,
+                    occurredAt: { gte: periodStart, lte: observationEnd },
+                },
+            }),
+            this.prisma.task.findMany({
+                where: {
+                    userId,
+                    createdAt: { lte: observationEnd },
+                    OR: [
+                        { status: { not: 'DONE' } },
+                        { completedAt: { gte: periodStart } },
+                    ],
+                },
+            }),
+            this.prisma.scheduleSlot.count({
+                where: {
+                    userId,
+                    startAt: { gte: periodStart, lte: observationEnd },
+                },
+            }),
+            this.prisma.task.findMany({
+                where: {
+                    userId,
+                    deadline: { gte: periodStart, lte: observationEnd },
+                },
+                select: { id: true },
+            }),
+        ]);
 
-        // Lấy tasks có trong kỳ quan sát để tính toán
-        const tasks = await this.prisma.task.findMany({
-            where: {
-                userId,
-                createdAt: { lte: targetDate },
-                OR: [
-                    { status: { not: 'DONE' } },
-                    { completedAt: { gte: periodStart } },
-                ],
-            },
-            include: { scheduleSlots: true },
-        });
 
-        // ─── 5 chỉ số ──────────────────────────────────────────
+        // 1. Delay Rate: số slot bị đóng băng / tổng slot đã đến giờ.
+        // Chỉ dùng TASK_DELAYED để không đếm đôi nếu PomodoroService còn ghi
+        // thêm TASK_STARTED_LATE khi người dùng bắt đầu muộn.
+        const delayedSlotCount = logs.filter(
+            (log) => log.eventType === EventType.TASK_DELAYED,
+        ).length;
+        const delayRate = dueSlotCount > 0
+            ? (Math.min(delayedSlotCount, dueSlotCount) / dueSlotCount) * 100
+            : 0;
 
-        // 1. Delay Rate: tỷ lệ task bắt đầu muộn so với lịch hẹn
-        const delayLogs = logs.filter(l => l.eventType === EventType.TASK_DELAYED || l.eventType === EventType.TASK_STARTED_LATE);
-        const taskStartEvents = logs.filter(l =>
-            l.eventType === EventType.TASK_CREATED ||
-            l.eventType === EventType.TASK_COMPLETED ||
-            l.eventType === EventType.TASK_DELAYED ||
-            l.eventType === EventType.TASK_STARTED_LATE
+
+        // 2. Deadline Miss Rate: chỉ xét các task có deadline nằm trong kỳ quan sát.
+        // Numerator đếm theo taskId duy nhất, không đếm số lần cron chạy.
+        const missedTaskIds = new Set(
+            logs
+                .filter((log) => log.eventType === EventType.DEADLINE_MISSED)
+                .map((log) => log.taskId)
+                .filter((taskId): taskId is string => Boolean(taskId)),
         );
-        const delayRate = taskStartEvents.length > 0
-            ? (delayLogs.length / taskStartEvents.length) * 100
+        const missedDeadlines = deadlineTasks.filter((task) =>
+            missedTaskIds.has(task.id),
+        ).length;
+        const deadlineMissRate = deadlineTasks.length > 0
+            ? (missedDeadlines / deadlineTasks.length) * 100
             : 0;
 
-        // 2. Deadline Miss Rate: tỷ lệ task bỏ lỡ deadline
-        const missedDeadlines = logs.filter(l => l.eventType === EventType.DEADLINE_MISSED).length;
-        const totalDeadlineTasks = tasks.filter(t => t.deadline !== null).length;
-        const deadlineMissRate = totalDeadlineTasks > 0
-            ? (missedDeadlines / totalDeadlineTasks) * 100
-            : 0;
 
-        // 3. Task Idle Days: trung bình số ngày task "nằm im" không được đụng tới
-        const now = targetDate.getTime();
+        // 3. Task Idle Days: trung bình số ngày task nằm im sau khi được tạo
+        const now = observationEnd.getTime();
         const idleDaysArr = tasks
             .filter(t => t.status !== 'DONE')
             .map(t => {
@@ -102,10 +144,18 @@ export class AnalyticsService {
                     .filter(l => l.taskId === t.id)
                     .map(l => l.occurredAt.getTime())
                     .sort((a, b) => b - a)[0];
-                if (!lastActivity) {
-                    return (now - t.createdAt.getTime()) / (1000 * 60 * 60 * 24);
-                }
-                return (now - lastActivity) / (1000 * 60 * 60 * 24);
+                const fallbackActivity = Math.max(
+                    t.createdAt.getTime(),
+                    t.updatedAt.getTime(),
+                );
+                const effectiveLastActivity = Math.max(
+                    lastActivity ?? 0,
+                    fallbackActivity,
+                );
+                return Math.max(
+                    0,
+                    (now - effectiveLastActivity) / (1000 * 60 * 60 * 24),
+                );
             });
         const avgIdleDays = idleDaysArr.length > 0
             ? idleDaysArr.reduce((s, d) => s + d, 0) / idleDaysArr.length
@@ -123,7 +173,7 @@ export class AnalyticsService {
             where: {
                 userId,
                 status: 'COMPLETED',
-                startedAt: { gte: periodStart, lte: targetDate },
+                startedAt: { gte: periodStart, lte: observationEnd },
                 actualDuration: { not: null },
             },
         });
@@ -205,6 +255,254 @@ export class AnalyticsService {
         if (score <= 30) return ProcrastinationClassification.GOOD;
         if (score <= 60) return ProcrastinationClassification.MEDIUM;
         return ProcrastinationClassification.NEEDS_INTERVENTION;
+    }
+
+    // ─── OVERDUE DEADLINE + DAILY SNAPSHOT ─────────────────────
+
+    /**
+     * Luồng 2: phát hiện task đã qua deadline nhưng chưa DONE.
+     * Task vẫn giữ TODO/IN_PROGRESS; chỉ ghi DEADLINE_MISSED một lần và notify.
+     */
+    @Cron('30 */5 * * * *', { timeZone: 'Asia/Ho_Chi_Minh' }) //chạy giây thứ 30, mỗi 5p 1 lần
+    
+    async detectMissedDeadlines(): Promise<{ detectedCount: number }> {
+        const now = new Date();
+        const overdueTasks = await this.prisma.task.findMany({
+            where: {
+                deadline: { lt: now },
+                status: { in: ['TODO', 'IN_PROGRESS'] },
+                user: { isActive: true },
+                behaviorLogs: {
+                    none: { eventType: EventType.DEADLINE_MISSED },
+                },
+            },
+            select: {
+                id: true,
+                userId: true,
+                title: true,
+                deadline: true,
+            },
+            orderBy: { deadline: 'asc' },
+            take: 2_000,
+        });
+
+        if (overdueTasks.length === 0) return { detectedCount: 0 };
+
+        const newlyMissed = overdueTasks;
+        if (newlyMissed.length === 0) return { detectedCount: 0 };
+
+        const insertedLogs = await this.prisma.behaviorLog.createMany({
+            data: newlyMissed.map((task) => ({
+                userId: task.userId,
+                taskId: task.id,
+                eventType: EventType.DEADLINE_MISSED,
+                scheduledTime: task.deadline,
+                delayMinutes: Math.max(
+                    0,
+                    Math.floor(
+                        (now.getTime() - task.deadline!.getTime()) / 60_000,
+                    ),
+                ),
+                occurredAt: now,
+                dedupeKey: `deadline-missed:${task.id}`,
+                metadata: {
+                    source: 'DEADLINE_MISS_CRON',
+                    taskTitle: task.title,
+                } as Prisma.InputJsonValue,
+            })),
+            skipDuplicates: true,
+        });
+
+        if (insertedLogs.count === 0) return { detectedCount: 0 };
+
+        const byUser = new Map<string, typeof newlyMissed>();
+        for (const task of newlyMissed) {
+            const list = byUser.get(task.userId) ?? [];
+            list.push(task);
+            byUser.set(task.userId, list);
+        }
+
+        await Promise.all(
+            [...byUser.entries()].map(async ([userId, tasks]) => {
+                const first = tasks[0];
+                const description = tasks.length === 1
+                    ? `“${first.title}” đã qua hạn. Công việc vẫn được giữ nguyên và sẽ được ưu tiên ở lần lập lịch tiếp theo.`
+                    : `Có ${tasks.length} công việc đã qua hạn. Các công việc vẫn được giữ nguyên và sẽ được ưu tiên khi lập lịch.`;
+
+                await this.notificationService.createNotification(
+                    userId,
+                    'productivity',
+                    tasks.length === 1
+                        ? 'Một công việc đã quá hạn'
+                        : `${tasks.length} công việc đã quá hạn`,
+                    description,
+                    'view_details',
+                    {
+                        metadata: {
+                            type: 'TASK_DEADLINE_MISSED',
+                            taskIds: tasks.map((task) => task.id),
+                        },
+                        dedupeKey: `deadline-missed-batch:${userId}:${tasks[0].id}:${tasks.length}`,
+                    },
+                );
+
+                this.notificationGateway.emitToUser(
+                    userId,
+                    'task_deadlines_missed',
+                    {
+                        tasks: tasks.map((task) => ({
+                            taskId: task.id,
+                            title: task.title,
+                            deadline: task.deadline,
+                            delayMinutes: Math.max(
+                                0,
+                                Math.floor(
+                                    (now.getTime() - task.deadline!.getTime()) /
+                                        60_000,
+                                ),
+                            ),
+                        })),
+                        occurredAt: now,
+                    },
+                );
+            }),
+        );
+
+        this.logger.log(`Recorded ${insertedLogs.count} new deadline miss(es).`);
+        return { detectedCount: insertedLogs.count };
+    }
+
+    /**
+     * Chạy 00:10 mỗi ngày để tính điểm trì hoãn
+     * 
+     */
+    @Cron('0 10 0 * * *', { timeZone: 'Asia/Ho_Chi_Minh' })
+    async calculateDailySnapshots(): Promise<void> {
+        const snapshotDate = new Date();
+        snapshotDate.setDate(snapshotDate.getDate() - 1);
+        snapshotDate.setHours(0, 0, 0, 0);
+
+        const users = await this.prisma.user.findMany({
+            where: { isActive: true, role: 'USER' },
+            select: { id: true },
+        });
+
+        for (const user of users) {
+            try {
+                const result = await this.calculateAndSave(
+                    user.id,
+                    snapshotDate,
+                );
+
+                this.notificationGateway.emitToUser(
+                    user.id,
+                    'analytics_updated',
+                    {
+                        type: 'DAILY_PROCRASTINATION_SCORE',
+                        calculatedDate: result.calculatedDate,
+                        score: result.score,
+                        classification: result.classification,
+                    },
+                );
+
+                if (result.score > 60) {
+                    const dateKey = snapshotDate.toISOString().split('T')[0];
+                    await this.notificationService.createNotification(
+                        user.id,
+                        'productivity',
+                        'Nên điều chỉnh kế hoạch làm việc',
+                        `Điểm trì hoãn ngày ${dateKey} là ${result.score}/100. Hãy xem các yếu tố ảnh hưởng và điều chỉnh lịch vừa sức hơn.`,
+                        'view_details',
+                        {
+                            metadata: {
+                                type: 'PROCRASTINATION_INTERVENTION',
+                                calculatedDate: dateKey,
+                                score: result.score,
+                            },
+                            dedupeKey: `procrastination-intervention:${user.id}:${dateKey}`,
+                        },
+                    );
+                }
+            } catch (error) {
+                this.logger.error(
+                    `Daily analytics failed for user ${user.id}: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
+                );
+            }
+        }
+    }
+
+    /**
+     * Dữ liệu tổng hợp để frontend hiển thị badge/dashboard quá hạn.
+     */
+    async getOverdueSummary(userId: string) {
+        const now = new Date();
+        const periodStart = new Date(now);
+        periodStart.setDate(periodStart.getDate() - 14);
+
+        const [frozenSlots, overdueTasks, delayLogs, deadlineLogs, latestScore] =
+            await Promise.all([
+                this.prisma.scheduleSlot.count({
+                    where: {
+                        userId,
+                        status: 'FROZEN_OVERDUE',
+                        isCompleted: false,
+                    },
+                }),
+                this.prisma.task.count({
+                    where: {
+                        userId,
+                        deadline: { lt: now },
+                        status: { in: ['TODO', 'IN_PROGRESS'] },
+                    },
+                }),
+                this.prisma.behaviorLog.findMany({
+                    where: {
+                        userId,
+                        eventType: EventType.TASK_DELAYED,
+                        occurredAt: { gte: periodStart, lte: now },
+                    },
+                    select: { delayMinutes: true },
+                }),
+                this.prisma.behaviorLog.count({
+                    where: {
+                        userId,
+                        eventType: EventType.DEADLINE_MISSED,
+                        occurredAt: { gte: periodStart, lte: now },
+                    },
+                }),
+                this.prisma.procrastinationScore.findFirst({
+                    where: { userId },
+                    orderBy: { calculatedDate: 'desc' },
+                }),
+            ]);
+
+        const validDelays = delayLogs
+            .map((log) => log.delayMinutes)
+            .filter((value): value is number => value != null);
+
+        return {
+            current: {
+                frozenSlotCount: frozenSlots,
+                overdueTaskCount: overdueTasks,
+            },
+            last14Days: {
+                delayedSlotCount: delayLogs.length,
+                deadlineMissCount: deadlineLogs,
+                averageSlotDelayMinutes:
+                    validDelays.length > 0
+                        ? Math.round(
+                              validDelays.reduce((sum, value) => sum + value, 0) /
+                                  validDelays.length,
+                          )
+                        : 0,
+            },
+            latestProcrastinationScore: latestScore
+                ? this.formatScoreResult(latestScore)
+                : null,
+            generatedAt: now,
+        };
     }
 
     // ─── COMPLETION RATE ────────────────────────────────────────
@@ -432,4 +730,9 @@ export class AnalyticsService {
         const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
         return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
     }
+
+    
+
+
 }
+

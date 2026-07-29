@@ -15,6 +15,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SchedulerService } from './scheduler.service';
 import { UpdateSlotDto } from './dto/update-slot.dto';
 import { QuerySlotDto } from './dto/query-slot.dto';
+import { RestructureOverdueSlotDto } from './dto/restructure-overdue-slot.dto';
 
 @ApiTags('Scheduler')
 @ApiBearerAuth()
@@ -24,7 +25,7 @@ export class SchedulerController {
     constructor(private readonly schedulerService: SchedulerService) {}
 
     @Post('generate')
-    @ApiOperation({ summary: 'Tạo lịch tuần tự động (Greedy Scheduling)' })
+    @ApiOperation({ summary: 'Tạo lịch tuần tự động bằng thuật toán Greedy Scheduling' })
     generate(@CurrentUser('id') userId: string) {
         return this.schedulerService.generateWeekly(userId);
     }
@@ -55,6 +56,34 @@ export class SchedulerController {
     @ApiOperation({ summary: 'Xóa slot khỏi lịch' })
     removeSlot(@CurrentUser('id') userId: string, @Param('id') id: string) {
         return this.schedulerService.removeSlot(userId, id);
+    }
+
+    @Post('slots/:id/restructure/preview')
+    @ApiOperation({ summary: 'Xem trước tác động tái cấu trúc một slot quá giờ' })
+    previewOverdueSlotRestructure(
+        @CurrentUser('id') userId: string,
+        @Param('id') id: string,
+        @Body() dto: RestructureOverdueSlotDto,
+    ) {
+        return this.schedulerService.previewOverdueSlotRestructure(
+            userId,
+            id,
+            dto.strategy,
+        );
+    }
+
+    @Post('slots/:id/restructure/confirm')
+    @ApiOperation({ summary: 'Xác nhận tái cấu trúc một slot quá giờ' })
+    confirmOverdueSlotRestructure(
+        @CurrentUser('id') userId: string,
+        @Param('id') id: string,
+        @Body() dto: RestructureOverdueSlotDto,
+    ) {
+        return this.schedulerService.confirmOverdueSlotRestructure(
+            userId,
+            id,
+            dto.strategy,
+        );
     }
 
     @Post('restructure')

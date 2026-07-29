@@ -1,6 +1,7 @@
 import {
     Controller,
     Get,
+    Post,
     Put,
     Body,
     Query,
@@ -57,5 +58,13 @@ export class AccountController {
         @Query('type') type?: string,
     ) {
         return this.accountService.getActivityLogs(userId, type);
+    }
+
+    @Post('seed-mock-data')
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: 'Khởi tạo mockup data đầy đủ cho user hiện tại để đánh giá hiển thị' })
+    @ApiResponse({ status: 200, description: 'Seed dữ liệu thành công' })
+    async seedMockData(@CurrentUser('id') userId: string) {
+        return this.accountService.seedMockData(userId);
     }
 }

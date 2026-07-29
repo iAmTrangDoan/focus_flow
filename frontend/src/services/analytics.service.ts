@@ -33,13 +33,34 @@ export interface HeatmapCell {
   value: number
 }
 
+export interface OverdueSummary {
+  current: {
+    frozenSlotCount: number
+    overdueTaskCount: number
+  }
+  last14Days: {
+    delayedSlotCount: number
+    deadlineMissCount: number
+    averageSlotDelayMinutes: number
+  }
+  latestProcrastinationScore: ProcrastinationScoreData | null
+  generatedAt: string
+}
+
 const analyticsService = {
+  
   /** Lấy Procrastination Score theo ngày */
   async getProcrastinationScore(date?: string): Promise<ProcrastinationScoreData> {
     const target = date ?? new Date().toISOString().split('T')[0]
     const { data } = await api.get<ProcrastinationScoreData>('/analytics/procrastination-score', {
       params: { date: target },
     })
+    return data
+  },
+
+  /** Tổng hợp slot trễ, task quá hạn và dữ liệu 14 ngày gần nhất */
+  async getOverdueSummary(): Promise<OverdueSummary> {
+    const { data } = await api.get<OverdueSummary>('/analytics/overdue-summary')
     return data
   },
 

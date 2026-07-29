@@ -2,6 +2,7 @@ import { io, Socket } from 'socket.io-client'
 
 class SocketService {
   private socket: Socket | null = null
+  private listeners = new Set<(notification: any) => void>()
 
   connect(token: string) {
     if (this.socket?.connected) return
@@ -20,6 +21,16 @@ class SocketService {
     this.socket.on('disconnect', () => {
       console.log('Socket.IO disconnected')
     })
+
+    this.socket.on('notification', (data) => {
+      this.listeners.forEach((cb) => {
+        try {
+          cb(data)
+        } catch (err) {
+          console.error('Error invoking socket notification listener:', err)
+        }
+      })
+    })
   }
 
   disconnect() {
@@ -31,14 +42,16 @@ class SocketService {
 
   /** Lắng nghe thông báo realtime */
   onNotification(callback: (notification: any) => void) {
-    if (!this.socket) return
-    this.socket.off('notification') // Tránh trùng listener
-    this.socket.on('notification', callback)
+    this.listeners.add(callback)
   }
 
   /** Hủy lắng nghe */
-  offNotification() {
-    this.socket?.off('notification')
+  offNotification(callback?: (notification: any) => void) {
+    if (callback) {
+      this.listeners.delete(callback)
+    } else {
+      this.listeners.clear()
+    }
   }
 }
 

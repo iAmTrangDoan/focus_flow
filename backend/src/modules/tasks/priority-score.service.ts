@@ -96,7 +96,7 @@ export class PriorityScoreService {
     }
 
     /**
-     * (2) Importance — ma trận Eisenhower suy từ importance + deadline
+     * (2) Importance — dựa theo ma trận Eisenhower suy từ importance + deadline
      */
     private calcImportance(importance: Importance, deadline: Date | null): number {
         const isUrgent = deadline
@@ -139,9 +139,9 @@ export class PriorityScoreService {
     }
 
     /**
-     * (4) EnergyFit — Option C Hybrid:
-     * - User có đủ data (is_cold_start=false) → dùng personalHeatmap từ behavior_profiles.peak_hours
-     * - User mới (cold start) → dùng genericEnergyCurve (circadian rhythm)
+     * (4) EnergyFit
+     * - User có đủ data (is_cold_start=false) → dùng dữ liệu từ behavior_profiles.peak_hours
+     * - User mới (cold start) → dùng mặc định
      * - Nhân windowFactor: 1.0 nếu trong giờ làm, 0.5 nếu ngoài
      *
      * Điều kiện thoát cold start: total_pomodoros >= 10 AND active_days >= 3
@@ -161,12 +161,12 @@ export class PriorityScoreService {
         let score: number;
 
         if (profile && !profile.isColdStart && profile.peakHours) {
-            // ─── Nhánh A: User có đủ data (≥10 phiên, ≥3 ngày) → dùng personalHeatmap
+            // User có đủ data (≥10 phiên, ≥3 ngày)
             const heatmap = profile.peakHours as Record<string, number>;
             const hourKey = currentHour.toString();
-            score = (heatmap[hourKey] ?? 0.5) * 10; // normalize 0–1 → 0–10
+            score = (heatmap[hourKey] ?? 0.5) * 10;
         } else {
-            // ─── Nhánh B: Cold start → dùng genericCurve
+            // User mới
             score = this.genericEnergyCurve(currentHour);
         }
 

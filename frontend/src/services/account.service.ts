@@ -1,5 +1,5 @@
 import api from './api'
-import type { ActivityEvent, ActivityType } from '../types'
+import type { ActivityEvent, ActivityType, User} from '../types'
 
 export interface ProcrastinationScoreData {
   score: number
@@ -62,22 +62,29 @@ const accountService = {
   },
 
   /** Lấy thông tin profile của user hiện tại */
-  async getProfile(): Promise<{ id: string; email: string; displayName: string; role: string }> {
-    const { data } = await api.get<any>('/account/me')
+  async getProfile(): Promise<User> { 
+    const { data } = await api.get<User>('/account/me')
     return data
   },
 
   /** Cập nhật thông tin hồ sơ (displayName) */
-  async updateProfile(payload: { displayName: string }): Promise<void> {
-    await api.put('/account/me', { displayName: payload.displayName })
+  async updateProfile(payload: { displayName: string }): Promise<User> {
+    const {data} = await api.put<User>('/account/me',{displayName: payload.displayName,});     
+    return data;
   },
 
   /** Đổi mật khẩu */
   async changePassword(payload: { current: string; next: string }): Promise<void> {
     await api.put('/account/password', {
-      current: payload.current,
+      current: payload.current, 
       next: payload.next,
     })
+  },
+
+  /** Seed dữ liệu giả lập */
+  async seedMockData(): Promise<{ message: string }> {
+    const { data } = await api.post<{ message: string }>('/account/seed-mock-data')
+    return data
   },
 }
 

@@ -8,7 +8,7 @@ import RegisterPage from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import LandingPage from './pages/Landing'
 import TaskBoardPage from './pages/TaskBoard'
-import ProfilePage from './pages/Profile'
+
 import AIInsightsPage from './pages/AIInsights'
 import FocusSessionsPage from './pages/FocusSession'
 import AnalyticsPage from './pages/Analytics'
@@ -16,11 +16,20 @@ import SchedulePage from './pages/Schedule'
 import SettingsPage from './pages/Settings'
 import NotificationsPage from './pages/Notifications'
 
+// Admin Pages & Layout
+import AdminLayout from './components/admin/AdminLayout'
+import AdminDashboardPage from './pages/admin/AdminDashboard'
+import AdminUsersPage from './pages/admin/AdminUsers'
+import AlgorithmConfigPage from './pages/admin/AlgorithmConfig'
+import CronConfigPage from './pages/admin/CronConfig'
+import SystemLogsPage from './pages/admin/SystemLogs'
+import AdminSettingsPage from './pages/admin/AdminSettings'
+
 // Components
 import ProtectedRoute from './components/common/ProtectedRoute'
 import DashboardLayout from './components/common/Sidebar'
 import { ToastContainer, type ToastMessage } from './components/common/Toast'
-import type { UserProfile } from './types'
+
 import { HelpCircle } from 'lucide-react'
 
 import socketService from './services/socket.service'
@@ -30,7 +39,7 @@ export default function App() {
   const initFromStorage = useAuthStore((s) => s.initFromStorage)
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const currentUser = useAuthStore((s) => s.user)
-  const setUserInStore = useAuthStore((s) => s.setUser)
+
 
   const [toasts, setToasts] = useState<ToastMessage[]>([])
 
@@ -49,41 +58,31 @@ export default function App() {
 
   // Connect socket when authenticated
   useEffect(() => {
+    let handleRealtime: ((data: any) => void) | null = null;
     if (isAuthenticated) {
       const token = localStorage.getItem('accessToken')
       if (token) {
         socketService.connect(token)
-        // Lắng nghe realtime notifications
-        socketService.onNotification((data: any) => {
+        handleRealtime = (data: any) => {
           addToast(createToast('success', `🔔 ${data.title}: ${data.description}`))
-        })
+        }
+        // Lắng nghe realtime notifications
+        socketService.onNotification(handleRealtime)
       }
     } else {
       socketService.disconnect()
     }
 
     return () => {
+      if (handleRealtime) {
+        socketService.offNotification(handleRealtime)
+      }
       socketService.disconnect()
     }
   }, [isAuthenticated, addToast])
 
 
-  // Adapter for UserProfile
-  const profileUser: UserProfile = {
-    name: currentUser?.displayName || currentUser?.email?.split('@')[0] || 'User',
-    email: currentUser?.email || '',
-    avatarUrl: null,
-    streak: 5,
-  }
 
-  const handleUserChange = (updated: UserProfile) => {
-    if (currentUser) {
-      setUserInStore({
-        ...currentUser,
-        displayName: updated.name,
-      })
-    }
-  }
 
   return (
     <>
@@ -94,7 +93,11 @@ export default function App() {
             path="/"
             element={
               isAuthenticated ? (
-                <Navigate to="/dashboard" replace />
+                currentUser?.role === 'ADMIN' ? (
+                  <Navigate to="/admin/dashboard" replace />
+                ) : (
+                  <Navigate to="/dashboard" replace />
+                )
               ) : (
                 <LandingPage />
               )
@@ -104,7 +107,11 @@ export default function App() {
             path="/login"
             element={
               isAuthenticated ? (
-                <Navigate to="/dashboard" replace />
+                currentUser?.role === 'ADMIN' ? (
+                  <Navigate to="/admin/dashboard" replace />
+                ) : (
+                  <Navigate to="/dashboard" replace />
+                )
               ) : (
                 <LoginPage />
               )
@@ -114,7 +121,11 @@ export default function App() {
             path="/register"
             element={
               isAuthenticated ? (
-                <Navigate to="/dashboard" replace />
+                currentUser?.role === 'ADMIN' ? (
+                  <Navigate to="/admin/dashboard" replace />
+                ) : (
+                  <Navigate to="/dashboard" replace />
+                )
               ) : (
                 <RegisterPage />
               )
@@ -144,20 +155,7 @@ export default function App() {
             }
           />
 
-          <Route
-            path="/profile"
-            element={
-              <ProtectedRoute>
-                <DashboardLayout>
-                  <ProfilePage
-                    user={profileUser}
-                    onUserChange={handleUserChange}
-                    onToast={addToast}
-                  />
-                </DashboardLayout>
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/profile" element={<Navigate to="/settings" replace />} />
 
           {/* Schedule */}
           <Route
@@ -259,6 +257,24 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+
+          {/* Admin routes */}
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute>
+                <AdminLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<Navigate to="/admin/dashboard" replace />} />
+            <Route path="dashboard" element={<AdminDashboardPage />} />
+            <Route path="users" element={<AdminUsersPage onToast={addToast} />} />
+            <Route path="algorithm-config" element={<AlgorithmConfigPage onToast={addToast} />} />
+            <Route path="cron-config" element={<CronConfigPage onToast={addToast} />} />
+            <Route path="system-logs" element={<SystemLogsPage />} />
+            <Route path="settings" element={<AdminSettingsPage onToast={addToast} />} />
+          </Route>
 
           {/* 404 */}
           <Route

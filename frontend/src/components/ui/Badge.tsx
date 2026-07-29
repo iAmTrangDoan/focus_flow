@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react';
 
-type BadgeVariant = 'primary' | 'secondary' | 'success' | 'warning' | 'danger' | 'neutral';
+type BadgeVariant = 'primary' | 'secondary' | 'success' | 'warning' | 'danger' | 'neutral' | 'info';
 
 interface BadgeProps {
   children: ReactNode;
@@ -32,6 +32,10 @@ const variantStyles: Record<BadgeVariant, React.CSSProperties> = {
   neutral: {
     background: '#F4FAF4',
     color: '#5F6E5F',
+  },
+  info: {
+    background: '#DBEAFE',
+    color: '#1D4ED8',
   },
 };
 

@@ -15,11 +15,20 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AiModule } from './modules/ai/ai.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { AiDemoModule } from './modules/ai-demo/ai-demo.module';
+import { ThrottlerModule, seconds } from '@nestjs/throttler';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    ScheduleModule.forRoot(),
+    ScheduleModule.forRoot(), // thư viện gọi cron job
+    ThrottlerModule.forRoot({
+      throttlers: [
+        {
+          ttl: seconds(60),
+          limit: 10,
+        },
+      ],
+    }),
     PrismaModule,
     AuthModule,
     TasksModule,

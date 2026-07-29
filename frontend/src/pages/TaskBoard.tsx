@@ -55,6 +55,16 @@ const statusLabels: Record<TaskStatus, string> = {
   done: 'Hoàn thành',
 };
 
+//Đổi datetime sang ISO
+function localDateTimeToIso(
+  date: string,
+  time: string,
+): string {
+  return new Date(
+    `${date}T${time}:00`,
+  ).toISOString();
+}
+
 /* ─── Mini Priority Score Ring ─── */
 function MiniScoreRing({ score }: { score: number }) {
   const r = 16;
@@ -146,14 +156,15 @@ export default function TaskBoardPage({ onToast }: Props) {
         title: data.title,
         type: data.type,
         importance: data.importance,
-        deadline: data.type === 'flexible' ? data.deadline : undefined,
-        fixedStart: data.type === 'fixed' && data.date && data.startTime
-          ? `${data.date}T${data.startTime}:00Z`
-          : undefined,
-        fixedEnd: data.type === 'fixed' && data.date && data.endTime
-          ? `${data.date}T${data.endTime}:00Z`
-          : undefined,
-        subtasks: data.subtasks.map(s => ({ title: s.title, aiEstimatedMinutes: s.estimatedMinutes || 15 })),
+        estimatedMinutes: data.estimatedMinutes,
+        deadline: data.type === 'flexible' && data.deadline ? new Date(data.deadline).toISOString() : undefined,
+        fixedStart: data.type === 'fixed' && data.date && data.startTime ? localDateTimeToIso(data.date, data.startTime) : undefined,
+        fixedEnd: data.type === 'fixed' && data.date && data.endTime ? localDateTimeToIso(data.date, data.endTime) : undefined,
+        subtasks: data.subtasks.map((subtask, index) => ({
+          title: subtask.title,
+          estimatedMinutes: subtask.estimatedMinutes || 15,
+          sortOrder: index,
+        })),
       });
       setTasks((prev) => [createdTask, ...prev]);
       onToast({ id: Date.now(), type: 'success', message: 'Đã tạo công việc thành công' });
@@ -179,6 +190,7 @@ export default function TaskBoardPage({ onToast }: Props) {
           type: updated.type,
           importance: updated.importance,
           deadline: updated.type === 'flexible' ? updated.deadline : undefined,
+          estimatedMinutes: updated.estimatedMinutes,
           fixedStart: updated.type === 'fixed' && updated.fixedTime
             ? updated.fixedTime.split('–')[0]?.trim()
             : undefined,
@@ -236,7 +248,7 @@ export default function TaskBoardPage({ onToast }: Props) {
   return (
     <div className="flex flex-col min-h-full">
       {/* ═══════ HEADER ═══════ */}
-      <header className="sticky top-0 z-10 px-6 lg:px-10 py-6" style={{ background: '#F4FAF4', borderBottom: '1px solid #E8F5E8' }}>
+      <header className="sticky top-0 z-30 px-6 lg:px-10 py-4" style={{ background: 'rgba(244, 250, 244, 0.95)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid #E8F5E8' }}>
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold" style={{ color: '#243024' }}>Bảng công việc</h1>

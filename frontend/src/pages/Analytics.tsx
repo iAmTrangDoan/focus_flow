@@ -18,15 +18,10 @@ import analyticsService, {
   type ProcrastinationScoreData,
   type CompletionRateDay,
   type WeeklyProductivity,
-  type HeatmapCell,
 } from '../services/analytics.service';
 
 /* ─── Types ─── */
 type TimeRange = 'this_week' | 'last_week' | 'this_month';
-
-const DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
-const HOURS = Array.from({ length: 16 }, (_, i) => i + 7);
-
 
 /* ─── Sub-components ─── */
 
@@ -122,11 +117,11 @@ function ProcrastinationScoreCard({ data, loading }: ProcrastinationScoreCardPro
   const { color: scoreColor, label: levelLabel } = classMap[data.classification] ?? { color: '#5FAF6E', label: data.classification };
 
   const breakdownItems = [
-    { label: 'Delay Rate', value: data.breakdown.delayRate, description: 'Tỷ lệ trì hoãn bắt đầu task' },
-    { label: 'Deadline Miss Rate', value: data.breakdown.deadlineMissRate, description: 'Tỷ lệ trễ deadline' },
-    { label: 'Task Idle Days', value: data.breakdown.taskIdleDays, description: 'Số ngày task nằm im' },
-    { label: 'Reschedule Frequency', value: data.breakdown.rescheduleFrequency, description: 'Tần suất đổi lịch' },
-    { label: 'Time Duration Accuracy', value: data.breakdown.timeDurationAccuracy, description: 'Độ chính xác ước lượng thời gian' },
+    { label: 'Delay Rate', value: data.breakdown.delayRate, description: 'Tỷ lệ trì hoãn bắt đầu task', invert: true },
+    { label: 'Deadline Miss Rate', value: data.breakdown.deadlineMissRate, description: 'Tỷ lệ trễ deadline', invert: true },
+    { label: 'Task Idle Days', value: data.breakdown.taskIdleDays, description: 'Số ngày task nằm im', invert: true },
+    { label: 'Reschedule Frequency', value: data.breakdown.rescheduleFrequency, description: 'Tần suất đổi lịch', invert: true },
+    { label: 'Time Duration Accuracy', value: data.breakdown.timeDurationAccuracy, description: 'Độ chính xác ước lượng thời gian', invert: false },
   ];
 
   return (
@@ -143,23 +138,28 @@ function ProcrastinationScoreCard({ data, loading }: ProcrastinationScoreCardPro
           <h4 className="text-xs font-semibold uppercase tracking-wide" style={{ color: '#9CA3AF' }}>
             Breakdown
           </h4>
-          {breakdownItems.map((item) => (
-            <div key={item.label}>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-medium" style={{ color: '#5F6E5F' }}>{item.label}</span>
-                <span className="text-xs font-semibold" style={{ color: '#243024' }}>{item.value}%</span>
+          {breakdownItems.map((item) => {
+            const barColor = item.invert
+              ? (item.value > 50 ? '#C1644C' : item.value > 30 ? '#B8860B' : '#5FAF6E')
+              : (item.value > 70 ? '#5FAF6E' : item.value > 50 ? '#B8860B' : '#C1644C');
+            return (
+              <div key={item.label}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-medium" style={{ color: '#5F6E5F' }}>{item.label}</span>
+                  <span className="text-xs font-semibold" style={{ color: '#243024' }}>{item.value}%</span>
+                </div>
+                <div className="w-full rounded-full overflow-hidden" style={{ height: 6, background: '#E8F5E8' }}>
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{
+                      width: `${Math.min(item.value, 100)}%`,
+                      background: barColor,
+                    }}
+                  />
+                </div>
               </div>
-              <div className="w-full rounded-full overflow-hidden" style={{ height: 6, background: '#E8F5E8' }}>
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{
-                    width: `${Math.min(item.value, 100)}%`,
-                    background: item.value > 50 ? '#C1644C' : item.value > 30 ? '#B8860B' : '#5FAF6E',
-                  }}
-                />
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </Card>
@@ -194,71 +194,7 @@ function CompletionRateCard({ data }: { data: CompletionRateDay[] }) {
   );
 }
 
-function HeatmapCard({ data }: { data: HeatmapCell[] }) {
-  const getHeatColor = (value: number) => {
-    if (value >= 3) return '#2E7D32';
-    if (value >= 2) return '#4CAF50';
-    if (value >= 1) return '#81C784';
-    return '#E8F5E8';
-  };
 
-  const getHeatmapValue = (day: string, hour: number) => {
-    const found = data.find((d) => d.day === day && d.hour === hour);
-    return found?.value ?? 0;
-  };
-
-  return (
-    <Card className="p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-sm font-semibold" style={{ color: '#243024' }}>Heatmap hiệu suất</h3>
-      </div>
-
-      <div className="overflow-x-auto">
-        <div className="grid gap-1" style={{ gridTemplateColumns: '36px repeat(7, 1fr)' }}>
-          <div />
-          {DAYS.map((day) => (
-            <div key={day} className="text-center text-xs font-medium py-1" style={{ color: '#5F6E5F' }}>
-              {day}
-            </div>
-          ))}
-
-          {HOURS.map((hour) => (
-            <>
-              <div key={`hour-${hour}`} className="text-right text-xs py-1 pr-2" style={{ color: '#9CA3AF' }}>
-                {hour}:00
-              </div>
-              {DAYS.map((day) => {
-                const value = getHeatmapValue(day, hour);
-                return (
-                  <div key={`${day}-${hour}`} className="relative group" title={`${day}, ${hour}:00 - ${value} phiên`}>
-                    <div
-                      className="rounded-sm transition-transform hover:scale-110 hover:z-10"
-                      style={{ width: '100%', aspectRatio: '1', background: getHeatColor(value), minWidth: 20 }}
-                    />
-                    <div
-                      className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 rounded-lg text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-20"
-                      style={{ background: '#243024', color: '#FFFFFF' }}
-                    >
-                      {day}, {hour}:00 — {value} phiên
-                    </div>
-                  </div>
-                );
-              })}
-            </>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex items-center justify-end gap-2 mt-4">
-        <span className="text-xs" style={{ color: '#9CA3AF' }}>Ít</span>
-        {[1, 2, 3, 4].map((val) => (
-          <div key={val} className="w-4 h-4 rounded-sm" style={{ background: getHeatColor(val) }} />
-        ))}
-        <span className="text-xs" style={{ color: '#9CA3AF' }}>Nhiều</span>
-      </div>
-    </Card>
-  );
-}
 
 function WeeklyProductivityCard({ data }: { data: WeeklyProductivity[] }) {
   return (
@@ -306,7 +242,6 @@ export default function AnalyticsPage() {
   const [loadingScore, setLoadingScore] = useState(false);
   const [completionRate, setCompletionRate] = useState<CompletionRateDay[]>([]);
   const [weeklyProductivity, setWeeklyProductivity] = useState<WeeklyProductivity[]>([]);
-  const [heatmap, setHeatmap] = useState<HeatmapCell[]>([]);
 
   useEffect(() => {
     setLoadingScore(true);
@@ -316,7 +251,6 @@ export default function AnalyticsPage() {
       .finally(() => setLoadingScore(false));
 
     analyticsService.getWeeklyProductivity().then(setWeeklyProductivity).catch(() => {});
-    analyticsService.getHeatmap().then(setHeatmap).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -326,8 +260,11 @@ export default function AnalyticsPage() {
   const hasData = procrastinationScore !== null || completionRate.length > 0;
 
   return (
-    <div className="flex flex-col min-h-full px-6 lg:px-10 py-8">
-      <header className="flex items-start justify-between gap-4 flex-wrap mb-8">
+    <div className="flex flex-col min-h-full">
+      <header
+        className="sticky top-0 z-30 flex items-start justify-between gap-4 flex-wrap py-4 px-6 lg:px-10 mb-8"
+        style={{ background: 'rgba(244, 250, 244, 0.95)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid #E8F5E8' }}
+      >
         <div>
           <h1 className="text-2xl font-bold" style={{ color: '#243024' }}>Phân tích năng suất</h1>
           <p className="text-sm mt-1" style={{ color: '#5F6E5F' }}>
@@ -337,7 +274,8 @@ export default function AnalyticsPage() {
         <TimeRangeDropdown value={timeRange} onChange={setTimeRange} />
       </header>
 
-      {hasData ? (
+      <div className="px-6 lg:px-10 pb-8">
+        {hasData ? (
         <div className="grid grid-cols-12 gap-6 lg:gap-8">
           <div className="col-span-12 lg:col-span-5">
             <ProcrastinationScoreCard data={procrastinationScore} loading={loadingScore} />
@@ -345,9 +283,7 @@ export default function AnalyticsPage() {
           <div className="col-span-12 lg:col-span-7">
             <CompletionRateCard data={completionRate} />
           </div>
-          <div className="col-span-12">
-            <HeatmapCard data={heatmap} />
-          </div>
+
           <div className="col-span-12">
             <WeeklyProductivityCard data={weeklyProductivity} />
           </div>
@@ -360,14 +296,13 @@ export default function AnalyticsPage() {
           <div className="col-span-12 lg:col-span-7">
             <EmptyStateCard title="Completion Rate" icon={<TrendingUp size={32} />} />
           </div>
-          <div className="col-span-12">
-            <EmptyStateCard title="Heatmap hiệu suất" icon={<BarChart3 size={32} />} />
-          </div>
+
           <div className="col-span-12">
             <EmptyStateCard title="Weekly Productivity" icon={<BarChart3 size={32} />} />
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

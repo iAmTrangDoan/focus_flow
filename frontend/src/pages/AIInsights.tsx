@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
 import {
-  Sun,
   Clock,
-  BarChart3,
   ChevronDown,
   Loader2,
   Check,
   Hourglass,
   Zap,
   RefreshCw,
+  ThumbsUp,
+  AlertTriangle,
+  Lightbulb,
 } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 
@@ -16,26 +17,43 @@ import { createToast, type ToastMessage } from '../components/common/Toast';
 import aiService, { type AiInsight, type WeekOption } from '../services/ai.service';
 
 /* ─── Types ─── */
-type InsightCategory = 'golden_hours' | 'procrastination_pattern' | 'completion_rate';
-
-interface Insight {
+interface Strength {
   id: string;
-  category: InsightCategory;
   content: string;
-  actionable: boolean;
+}
+
+interface Concern {
+  id: string;
+  content: string;
+}
+
+interface Suggestion {
+  id: string;
+  content: string;
+  actionType: string;
   status: 'new' | 'applied';
 }
 
 /* ─── Helpers ─── */
-function mapApiInsight(ai: AiInsight): Insight[] {
-  const items = ai.content?.insights ?? [];
-  return items.map((item, i) => ({
-    id: `${ai.id}-${i}`,
-    category: item.category as InsightCategory,
-    content: item.content,
-    actionable: item.actionable,
+function mapApiInsight(ai: AiInsight) {
+  const strengths: Strength[] = (ai.content?.strengths ?? []).map((s, i) => ({
+    id: `${ai.id}-s-${i}`,
+    content: s,
+  }));
+
+  const concerns: Concern[] = (ai.content?.concerns ?? []).map((c, i) => ({
+    id: `${ai.id}-c-${i}`,
+    content: c,
+  }));
+
+  const suggestions: Suggestion[] = (ai.content?.actionableSuggestions ?? []).map((s, i) => ({
+    id: `${ai.id}-a-${i}`,
+    content: s.content,
+    actionType: s.actionType,
     status: 'new' as const,
   }));
+
+  return { strengths, concerns, suggestions, summary: ai.content?.summary ?? '' };
 }
 
 
@@ -116,51 +134,62 @@ function WeekDropdown({ value, onChange, weeks }: WeekDropdownProps) {
 }
 
 
-/* ─── Sub-components (unchanged) ─── */
+/* ─── Sub-components ─── */
 
-// Category Icon
-interface CategoryIconProps {
-  category: InsightCategory;
-}
-
-function CategoryIcon({ category }: CategoryIconProps) {
-  const config = {
-    golden_hours: { icon: Sun, bg: '#FEF3C7', color: '#D97706' },
-    procrastination_pattern: { icon: Clock, bg: '#FCE7F3', color: '#DB2777' },
-    completion_rate: { icon: BarChart3, bg: '#DDF3DF', color: '#5FAF6E' },
-  };
-  const { icon: Icon, bg, color } = config[category] ?? config.completion_rate;
+// Strength Card
+function StrengthCard({ strength }: { strength: Strength }) {
   return (
-    <div className="flex items-center justify-center rounded-xl shrink-0" style={{ width: 40, height: 40, background: bg }}>
-      <Icon size={20} style={{ color }} />
-    </div>
+    <Card className="transition-all duration-200 hover:shadow-md" style={{ borderColor: '#E8F5E8', borderWidth: 1 }}>
+      <div className="p-5 flex gap-4">
+        <div className="flex items-center justify-center rounded-xl shrink-0" style={{ width: 40, height: 40, background: '#DDF3DF' }}>
+          <ThumbsUp size={20} style={{ color: '#5FAF6E' }} />
+        </div>
+        <p className="text-base leading-relaxed flex-1" style={{ color: '#243024', lineHeight: 1.6 }}>
+          {strength.content}
+        </p>
+      </div>
+    </Card>
   );
 }
 
-// Insight Card
-interface InsightCardProps {
-  insight: Insight;
-  onApply: (id: string) => void;
+// Concern Card
+function ConcernCard({ concern }: { concern: Concern }) {
+  return (
+    <Card className="transition-all duration-200 hover:shadow-md" style={{ borderColor: '#FEF3C7', borderWidth: 1 }}>
+      <div className="p-5 flex gap-4">
+        <div className="flex items-center justify-center rounded-xl shrink-0" style={{ width: 40, height: 40, background: '#FEF3C7' }}>
+          <AlertTriangle size={20} style={{ color: '#D97706' }} />
+        </div>
+        <p className="text-base leading-relaxed flex-1" style={{ color: '#243024', lineHeight: 1.6 }}>
+          {concern.content}
+        </p>
+      </div>
+    </Card>
+  );
 }
 
-function InsightCard({ insight, onApply }: InsightCardProps) {
+// Suggestion Card
+function SuggestionCard({ suggestion, onApply }: { suggestion: Suggestion; onApply: (id: string) => void }) {
   const [isLoading, setIsLoading] = useState(false);
   const handleApply = async () => {
     setIsLoading(true);
     await new Promise((resolve) => setTimeout(resolve, 800));
     setIsLoading(false);
-    onApply(insight.id);
+    onApply(suggestion.id);
   };
-  const isApplied = insight.status === 'applied';
+  const isApplied = suggestion.status === 'applied';
+
   return (
     <Card className="transition-all duration-200 hover:shadow-md" style={{ borderColor: isApplied ? '#5FAF6E' : '#E8F5E8', borderWidth: 1 }}>
-      <div className="p-6 flex gap-4">
-        <CategoryIcon category={insight.category} />
+      <div className="p-5 flex gap-4">
+        <div className="flex items-center justify-center rounded-xl shrink-0" style={{ width: 40, height: 40, background: '#FCE7F3' }}>
+          <Lightbulb size={20} style={{ color: '#DB2777' }} />
+        </div>
         <div className="flex-1 min-w-0">
           <p className="text-base leading-relaxed" style={{ color: '#243024', lineHeight: 1.6 }}>
-            {insight.content}
+            {suggestion.content}
           </p>
-          {insight.actionable && (
+          {suggestion.actionType !== 'none' && (
             <div className="mt-4 flex items-center gap-3">
               {isApplied ? (
                 <span className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium" style={{ background: '#DDF3DF', color: '#4A9459' }}>
@@ -227,7 +256,10 @@ interface AIInsightsPageProps {
 export default function AIInsightsPage({ onToast }: AIInsightsPageProps) {
   const [weeks, setWeeks] = useState<WeekOption[]>([]);
   const [selectedWeek, setSelectedWeek] = useState<string>('');
-  const [insights, setInsights] = useState<Insight[]>([]);
+  const [strengths, setStrengths] = useState<Strength[]>([]);
+  const [concerns, setConcerns] = useState<Concern[]>([]);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [summary, setSummary] = useState('');
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [apiInsight, setApiInsight] = useState<AiInsight | null>(null);
@@ -250,25 +282,44 @@ export default function AIInsightsPage({ onToast }: AIInsightsPageProps) {
       .then((data) => {
         if (data.length > 0) {
           setApiInsight(data[0]);
-          setInsights(mapApiInsight(data[0]));
+          const mapped = mapApiInsight(data[0]);
+          setStrengths(mapped.strengths);
+          setConcerns(mapped.concerns);
+          setSuggestions(mapped.suggestions);
+          setSummary(mapped.summary);
         } else {
           setApiInsight(null);
-          setInsights([]);
+          setStrengths([]);
+          setConcerns([]);
+          setSuggestions([]);
+          setSummary('');
         }
       })
-      .catch(() => { setInsights([]); })
+      .catch(() => {
+        setStrengths([]);
+        setConcerns([]);
+        setSuggestions([]);
+        setSummary('');
+      })
       .finally(() => setLoading(false));
   }, [selectedWeek]);
 
   const handleGenerate = async () => {
     setGenerating(true);
     try {
-      const result = await aiService.generateInsight(selectedWeek || undefined, false);
+      const result = await aiService.generateInsight();
       setApiInsight(result);
-      setInsights(mapApiInsight(result));
+      const mapped = mapApiInsight(result);
+      setStrengths(mapped.strengths);
+      setConcerns(mapped.concerns);
+      setSuggestions(mapped.suggestions);
+      setSummary(mapped.summary);
       // Refresh weeks list
       const updatedWeeks = await aiService.getAvailableWeeks();
       setWeeks(updatedWeeks);
+      if (updatedWeeks.length > 0 && !selectedWeek) {
+        setSelectedWeek(updatedWeeks[0].weekStartDate);
+      }
       onToast(createToast('success', '✨ AI đã tạo nhận xét mới cho tuần của bạn!'));
     } catch (err: any) {
       onToast(createToast('error', err?.message ?? 'Không thể tạo nhận xét. Thử lại sau.'));
@@ -278,17 +329,20 @@ export default function AIInsightsPage({ onToast }: AIInsightsPageProps) {
   };
 
   const handleApply = (id: string) => {
-    setInsights((prev) => prev.map((insight) => insight.id === id ? { ...insight, status: 'applied' as const } : insight));
+    setSuggestions((prev) => prev.map((s) => s.id === id ? { ...s, status: 'applied' as const } : s));
     onToast(createToast('success', 'Đã áp dụng gợi ý — lịch trình của bạn đã được cập nhật'));
   };
 
   const isProcessing = apiInsight?.status === 'PENDING';
-  const hasInsights = insights.length > 0;
+  const hasContent = strengths.length > 0 || concerns.length > 0 || suggestions.length > 0;
 
   return (
-    <div className="flex flex-col min-h-full px-6 lg:px-10 py-8">
+    <div className="flex flex-col min-h-full">
       {/* Header */}
-      <header className="mb-8">
+      <header
+        className="sticky top-0 z-30 py-4 px-6 lg:px-10 mb-8"
+        style={{ background: 'rgba(244, 250, 244, 0.95)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid #E8F5E8' }}
+      >
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold" style={{ color: '#243024' }}>Nhận xét từ AI</h1>
@@ -310,30 +364,82 @@ export default function AIInsightsPage({ onToast }: AIInsightsPageProps) {
         </div>
       </header>
 
-      {/* Content */}
-      {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 size={32} className="animate-spin" style={{ color: '#5FAF6E' }} />
-        </div>
-      ) : isProcessing ? (
-        <ProcessingCard />
-      ) : hasInsights ? (
-        <div className="flex flex-col gap-6">
-          {insights.map((insight) => (
-            <InsightCard key={insight.id} insight={insight} onApply={handleApply} />
-          ))}
-        </div>
-      ) : (
-        <Card>
-          <EmptyState onGenerate={handleGenerate} generating={generating} />
-        </Card>
-      )}
+      <div className="px-6 lg:px-10 pb-8">
+        {/* Content */}
+        {loading ? (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 size={32} className="animate-spin" style={{ color: '#5FAF6E' }} />
+          </div>
+        ) : isProcessing ? (
+          <ProcessingCard />
+        ) : hasContent ? (
+          <div className="flex flex-col gap-8">
+            {/* Summary */}
+            {summary && (
+              <div className="px-5 py-4 rounded-2xl" style={{ background: '#F4FAF4', border: '1px solid #E8F5E8' }}>
+                <p className="text-base leading-relaxed" style={{ color: '#243024', lineHeight: 1.7 }}>
+                  {summary}
+                </p>
+              </div>
+            )}
 
-      {/* Footer Note */}
-      <div className="mt-8 pt-6" style={{ borderTop: '1px solid #E8F5E8' }}>
-        <p className="text-center" style={{ fontSize: 13, color: '#5F6E5F' }}>
-          Nhận xét AI chỉ mang tính chất hỗ trợ ra quyết định. Bạn luôn là người quyết định cuối cùng cho lịch làm việc của mình.
-        </p>
+            {/* Strengths */}
+            {strengths.length > 0 && (
+              <section>
+                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2" style={{ color: '#243024' }}>
+                  <ThumbsUp size={18} style={{ color: '#5FAF6E' }} />
+                  Điểm tích cực
+                </h2>
+                <div className="flex flex-col gap-4">
+                  {strengths.map((s) => (
+                    <StrengthCard key={s.id} strength={s} />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Concerns */}
+            {concerns.length > 0 && (
+              <section>
+                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2" style={{ color: '#243024' }}>
+                  <AlertTriangle size={18} style={{ color: '#D97706' }} />
+                  Điểm cần lưu ý
+                </h2>
+                <div className="flex flex-col gap-4">
+                  {concerns.map((c) => (
+                    <ConcernCard key={c.id} concern={c} />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Actionable Suggestions */}
+            {suggestions.length > 0 && (
+              <section>
+                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2" style={{ color: '#243024' }}>
+                  <Lightbulb size={18} style={{ color: '#DB2777' }} />
+                  Gợi ý hành động
+                </h2>
+                <div className="flex flex-col gap-4">
+                  {suggestions.map((s) => (
+                    <SuggestionCard key={s.id} suggestion={s} onApply={handleApply} />
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+        ) : (
+          <Card>
+            <EmptyState onGenerate={handleGenerate} generating={generating} />
+          </Card>
+        )}
+
+        {/* Footer Note */}
+        <div className="mt-8 pt-6" style={{ borderTop: '1px solid #E8F5E8' }}>
+          <p className="text-center" style={{ fontSize: 13, color: '#5F6E5F' }}>
+            Nhận xét AI chỉ mang tính chất hỗ trợ ra quyết định. Bạn luôn là người quyết định cuối cùng cho lịch làm việc của mình.
+          </p>
+        </div>
       </div>
     </div>
   );

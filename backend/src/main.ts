@@ -6,10 +6,8 @@ import { AppModule } from './app.module';
 async function bootstrap() {
     const app = await NestFactory.create(AppModule);
 
-    // Global prefix: tất cả route bắt đầu bằng /api
     app.setGlobalPrefix('api');
 
-    // Validation pipe: tự động validate DTOs
     app.useGlobalPipes(
         new ValidationPipe({
             whitelist: true,           // Loại bỏ các field không có trong DTO
@@ -18,7 +16,6 @@ async function bootstrap() {
         }),
     );
 
-    // CORS: cho phép frontend truy cập từ localhost 
     const allowedOrigins = ['http://localhost:5173', 'http://localhost', 'http://localhost:80'];
     
     if (process.env.FRONTEND_URL) {
@@ -30,7 +27,6 @@ async function bootstrap() {
         credentials: true,
     });
 
-    // Swagger API documentation
     const config = new DocumentBuilder()
         .setTitle('FocusFlow API')
         .setDescription('API quản lý công việc cá nhân tích hợp AI và Pomodoro')

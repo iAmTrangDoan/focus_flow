@@ -31,7 +31,11 @@ export default function LoginPage() {
       const response = await authService.login({ email, password });
       authService.saveSession(response);
       setUser(response.user);
-      navigate('/dashboard');
+      if (response.user.role === 'ADMIN') {
+        navigate('/admin/dashboard');
+      } else {
+        navigate('/dashboard');
+      }
     } catch (err: any) {
       const msg = err?.response?.data?.message || 'Đăng nhập thất bại. Vui lòng thử lại.';
       setServerError(msg);

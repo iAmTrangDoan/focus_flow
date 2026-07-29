@@ -207,18 +207,25 @@ export default function NotificationsPage() {
 
   /* Listen to realtime notifications to update list dynamically */
   useEffect(() => {
-    socketService.onNotification((data: any) => {
+    const handleRealtime = (data: any) => {
       setNotifications((prev) => {
         // Tránh trùng lặp id
         if (prev.some(n => n.id === data.id)) return prev;
         return [data, ...prev];
       });
-    });
+    };
+
+    socketService.onNotification(handleRealtime);
 
     return () => {
-      socketService.offNotification();
+      socketService.offNotification(handleRealtime);
     };
   }, []);
+
+  /* Dispatch custom event to notify other components (e.g., Sidebar) when notifications change */
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('notifications_changed'));
+  }, [notifications]);
 
   const filtered = notifications.filter(
     (n) => activeFilter === 'all' || n.category === activeFilter
@@ -261,9 +268,12 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div className="flex flex-col min-h-full px-6 lg:px-10 py-8">
+    <div className="flex flex-col min-h-full">
       {/* Header */}
-      <header className="flex items-start justify-between gap-4 flex-wrap mb-6">
+      <header
+        className="sticky top-0 z-30 flex items-start justify-between gap-4 flex-wrap py-4 px-6 lg:px-10 mb-6"
+        style={{ background: 'rgba(244, 250, 244, 0.95)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid #E8F5E8' }}
+      >
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold" style={{ color: '#243024' }}>Thông báo</h1>
@@ -293,76 +303,78 @@ export default function NotificationsPage() {
         )}
       </header>
 
-      {/* Filter tabs */}
-      <div className="flex items-center gap-2 mb-6 flex-wrap">
-        <Filter size={16} style={{ color: '#9CA3AF' }} />
-        {FILTER_OPTIONS.map((opt) => (
-          <button
-            key={opt.value}
-            onClick={() => setActiveFilter(opt.value)}
-            className="px-4 py-2 rounded-full text-sm font-medium transition-all"
-            style={{
-              background: activeFilter === opt.value ? '#5FAF6E' : '#FFFFFF',
-              color: activeFilter === opt.value ? '#FFFFFF' : '#5F6E5F',
-              border: `1px solid ${activeFilter === opt.value ? '#5FAF6E' : '#E8F5E8'}`,
-            }}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Notification List */}
-      <div
-        className="rounded-2xl overflow-hidden"
-        style={{ background: '#FFFFFF', border: '1px solid #E8F5E8', boxShadow: '0 2px 16px rgba(36, 48, 36, 0.07)' }}
-      >
-        {filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20">
-            <div
-              className="flex items-center justify-center rounded-3xl mb-4"
-              style={{ width: 80, height: 80, background: '#F4FAF4' }}
+      <div className="px-6 lg:px-10 pb-8">
+        {/* Filter tabs */}
+        <div className="flex items-center gap-2 mb-6 flex-wrap">
+          <Filter size={16} style={{ color: '#9CA3AF' }} />
+          {FILTER_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => setActiveFilter(opt.value)}
+              className="px-4 py-2 rounded-full text-sm font-medium transition-all"
+              style={{
+                background: activeFilter === opt.value ? '#5FAF6E' : '#FFFFFF',
+                color: activeFilter === opt.value ? '#FFFFFF' : '#5F6E5F',
+                border: `1px solid ${activeFilter === opt.value ? '#5FAF6E' : '#E8F5E8'}`,
+              }}
             >
-              <Bell size={32} style={{ color: '#9CA3AF' }} />
-            </div>
-            <p className="text-base font-semibold" style={{ color: '#243024' }}>Không có thông báo</p>
-            <p className="text-sm mt-1" style={{ color: '#9CA3AF' }}>Bạn đã xem hết tất cả thông báo rồi</p>
-          </div>
-        ) : (
-          groupOrder.map((group) => {
-            const items = groups[group];
-            if (!items || items.length === 0) return null;
+              {opt.label}
+            </button>
+          ))}
+        </div>
 
-            return (
-              <div key={group}>
-                {/* Group header */}
-                <div
-                  className="px-5 py-3 text-xs font-semibold uppercase tracking-wide"
-                  style={{ background: '#F4FAF4', color: '#9CA3AF', borderBottom: '1px solid #E8F5E8' }}
-                >
-                  {TIME_GROUP_LABELS[group]}
-                </div>
-
-                {/* Items */}
-                {items.map((notification) => (
-                  <NotificationItem
-                    key={notification.id}
-                    notification={notification}
-                    onMarkRead={markRead}
-                  />
-                ))}
+        {/* Notification List */}
+        <div
+          className="rounded-2xl overflow-hidden"
+          style={{ background: '#FFFFFF', border: '1px solid #E8F5E8', boxShadow: '0 2px 16px rgba(36, 48, 36, 0.07)' }}
+        >
+          {filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20">
+              <div
+                className="flex items-center justify-center rounded-3xl mb-4"
+                style={{ width: 80, height: 80, background: '#F4FAF4' }}
+              >
+                <Bell size={32} style={{ color: '#9CA3AF' }} />
               </div>
-            );
-          })
+              <p className="text-base font-semibold" style={{ color: '#243024' }}>Không có thông báo</p>
+              <p className="text-sm mt-1" style={{ color: '#9CA3AF' }}>Bạn đã xem hết tất cả thông báo rồi</p>
+            </div>
+          ) : (
+            groupOrder.map((group) => {
+              const items = groups[group];
+              if (!items || items.length === 0) return null;
+
+              return (
+                <div key={group}>
+                  {/* Group header */}
+                  <div
+                    className="px-5 py-3 text-xs font-semibold uppercase tracking-wide"
+                    style={{ background: '#F4FAF4', color: '#9CA3AF', borderBottom: '1px solid #E8F5E8' }}
+                  >
+                    {TIME_GROUP_LABELS[group]}
+                  </div>
+
+                  {/* Items */}
+                  {items.map((notification) => (
+                    <NotificationItem
+                      key={notification.id}
+                      notification={notification}
+                      onMarkRead={markRead}
+                    />
+                  ))}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Footer */}
+        {filtered.length > 0 && (
+          <p className="text-center text-xs mt-6" style={{ color: '#9CA3AF' }}>
+            Hiển thị {filtered.length} thông báo gần nhất
+          </p>
         )}
       </div>
-
-      {/* Footer */}
-      {filtered.length > 0 && (
-        <p className="text-center text-xs mt-6" style={{ color: '#9CA3AF' }}>
-          Hiển thị {filtered.length} thông báo gần nhất
-        </p>
-      )}
     </div>
   );
 }

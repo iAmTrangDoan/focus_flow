@@ -5,25 +5,26 @@ import {
     Body,
     Query,
     UseGuards,
+    HttpCode,
+    HttpStatus,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery, ApiBody } from '@nestjs/swagger';
+import {
+    ApiTags,
+    ApiOperation,
+    ApiBearerAuth,
+    ApiQuery,
+    ApiBody,
+    ApiOkResponse,
+    ApiUnauthorizedResponse,
+    ApiTooManyRequestsResponse,
+    ApiBadGatewayResponse,
+    ApiServiceUnavailableResponse,
+    ApiInternalServerErrorResponse,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AiService } from './ai.service';
-import { IsString, IsOptional } from 'class-validator';
-
-export class SuggestSubtasksDto {
-    @IsString()
-    taskTitle: string;
-
-    @IsOptional()
-    @IsString()
-    deadline?: string;
-
-    @IsOptional()
-    @IsString()
-    eisenhowerQuadrant?: string;
-}
+import { SuggestSubtasksDto, AiSubtasksResponseDto } from './dto/suggest-subtask.dto';
 
 @ApiTags('AI')
 @ApiBearerAuth()
@@ -67,10 +68,30 @@ export class AiController {
     }
 
     @Post('suggest-subtasks')
-    @ApiOperation({ summary: 'Gợi ý subtasks cho công việc dựa trên AI' })
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: 'Tạo danh sách subtasks' })
+    @ApiOkResponse({
+        description: 'Phân rã task thành công',
+        type: AiSubtasksResponseDto,
+    })
+    @ApiUnauthorizedResponse({
+        description: 'Người dùng chưa đăng nhập hoặc token không hợp lệ',
+    })
+    @ApiTooManyRequestsResponse({
+        description: 'Gemini API đang bị rate limit',
+    })
+    @ApiBadGatewayResponse({
+        description: 'Gemini trả về dữ liệu không hợp lệ',
+    })
+    @ApiServiceUnavailableResponse({
+        description: 'Gemini timeout hoặc tạm thời không khả dụng',
+    })
+    @ApiInternalServerErrorResponse({
+        description: 'Backend chưa cấu hình Gemini API key',
+    })
     suggestSubtasks(
         @Body() dto: SuggestSubtasksDto,
-    ) {
-        return this.aiService.suggestSubtasks(dto.taskTitle, dto.deadline, dto.eisenhowerQuadrant);
+    ): Promise<AiSubtasksResponseDto> {
+        return this.aiService.suggestSubtasks(dto);
     }
 }

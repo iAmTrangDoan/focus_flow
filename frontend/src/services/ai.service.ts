@@ -6,12 +6,13 @@ export interface AiInsight {
   status: 'PENDING' | 'GENERATED' | 'FAILED'
   isActionable: boolean
   content: {
-    insights?: {
-      category: 'golden_hours' | 'procrastination_pattern' | 'completion_rate'
-      content: string
-      actionable: boolean
-    }[]
     summary?: string
+    strengths?: string[]
+    concerns?: string[]
+    actionableSuggestions?: {
+      content: string
+      actionType: 'reprioritize_morning' | 'reprioritize_evening' | 'shorten_tasks' | 'adjust_reminder' | 'none'
+    }[]
   }
   inputSummary?: any
   createdAt: string
@@ -44,21 +45,17 @@ const aiService = {
     return data
   },
 
-  /** Tạo AI Insight cho tuần được chọn (idempotent, force=true để ghi đè) */
+  /** Tạo AI Insight cho tuần trước (idempotent, không nhận tham số) */
   async generateInsight(weekStartDate?: string, force = false): Promise<AiInsight> {
-    const { data } = await api.post<AiInsight>('/ai/generate', {
-      weekStartDate,
-      force,
-    })
+    const { data } = await api.post<AiInsight>('/ai/generate', { weekStartDate, force })
     return data
   },
 
-  /** Gợi ý subtasks cho công việc dựa trên AI */
-  async suggestSubtasks(taskTitle: string, deadline?: string, eisenhowerQuadrant?: string): Promise<SuggestedSubtask[]> {
+  async suggestSubtasks(taskTitle: string, deadline?: string, importance?: string): Promise<SuggestedSubtask[]> {
     const { data } = await api.post<{ subtasks: SuggestedSubtask[] }>('/ai/suggest-subtasks', {
       taskTitle,
       deadline,
-      eisenhowerQuadrant,
+      importance,
     })
     return data.subtasks || []
   },

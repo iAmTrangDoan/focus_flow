@@ -11,11 +11,40 @@ export interface NewTaskData {
   title: string;
   type: TaskType;
   importance: Importance;
+  estimatedMinutes?: number;
   deadline?: string;
   date?: string;
   startTime?: string;
   endTime?: string;
   subtasks: Subtask[];
+}
+
+function formatDisplayDateTime(iso: string | undefined | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function formatDisplayDate(val: string | undefined | null): string {
+  if (!val) return '';
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return val;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
+
+function getLocalDateString(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function getLocalDateTimeString(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 interface Props {
@@ -30,6 +59,7 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
   const [type, setType] = useState<TaskType>('flexible');
   const [importance, setImportance] = useState<Importance>('HIGH');
   const [deadline, setDeadline] = useState('');
+  const [estimatedMinutes, setEstimatedMinutes] = useState<number | ''>('');
   const [date, setDate] = useState('');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
@@ -37,7 +67,10 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [typeVisible, setTypeVisible] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
+  const deadlineInputRef = useRef<HTMLInputElement>(null);
+  const dateInputRef = useRef<HTMLInputElement>(null);
 
   const canSave = title.trim().length > 0;
 
@@ -66,9 +99,13 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
   }, [open]);
 
   const reset = () => {
-    setTitle(''); setType('flexible'); setImportance('HIGH');
+    setTitle('');
+    setType('flexible');
+    setImportance('HIGH');
+    setEstimatedMinutes('');
     setDeadline(''); setDate(''); setStartTime(''); setEndTime('');
     setSubtasks([]); setAiLoading(false); setAiError(null); setTypeVisible(false);
+    setValidationError(null);
   };
 
   const handleClose = () => { reset(); onClose(); };
@@ -122,8 +159,53 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
 
   const handleSave = () => {
     if (!canSave) return;
+
+    const nowWithGrace = new Date(Date.now() - 60000);
+
+    if (type === 'fixed') {
+      if (!date || !startTime || !endTime) {
+        setValidationError('Vui lòng chọn đầy đủ ngày, giờ bắt đầu và kết thúc.');
+        return;
+      }
+      const start = new Date(`${date}T${startTime}`);
+      const end = new Date(`${date}T${endTime}`);
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+        setValidationError('Định dạng ngày giờ không hợp lệ.');
+        return;
+      }
+      if (start < nowWithGrace) {
+        setValidationError('Thời gian bắt đầu không được ở trong quá khứ.');
+        return;
+      }
+      if (end <= start) {
+        setValidationError('Giờ kết thúc phải sau giờ bắt đầu.');
+        return;
+      }
+    }
+
+    if (type === 'flexible') {
+      const targetMin = subtasks.length > 0 ? totalMin : estimatedMinutes;
+      if (targetMin === '' || Number(targetMin) <= 0 || !Number.isInteger(Number(targetMin))) {
+        setValidationError('Vui lòng nhập thời lượng ước tính là số nguyên dương.');
+        return;
+      }
+      if (deadline) {
+        const dlDate = new Date(deadline);
+        if (Number.isNaN(dlDate.getTime())) {
+          setValidationError('Định dạng hạn chót không hợp lệ.');
+          return;
+        }
+        if (dlDate < nowWithGrace) {
+          setValidationError('Hạn chót (Deadline) không được ở trong quá khứ.');
+          return;
+        }
+      }
+    }
+
+    setValidationError(null);
     onSave({
       title: title.trim(), type, importance,
+      estimatedMinutes: type === 'flexible' ? (subtasks.length > 0 ? totalMin : Number(estimatedMinutes)) : undefined,
       deadline: type === 'flexible' ? deadline : undefined,
       date: type === 'fixed' ? date : undefined,
       startTime: type === 'fixed' ? startTime : undefined,
@@ -227,29 +309,97 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
             {/* Animated fields */}
             <div
               className="overflow-hidden transition-all duration-300 ease-in-out"
-              style={{ maxHeight: typeVisible ? 200 : 0, opacity: typeVisible ? 1 : 0, marginTop: typeVisible ? 12 : 0 }}
+              style={{ maxHeight: typeVisible ? (type === 'fixed' ? 240 : 200) + (validationError ? 40 : 0) : 0, opacity: typeVisible ? 1 : 0, marginTop: typeVisible ? 12 : 0 }}
             >
               {type === 'flexible' ? (
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: '#9CA3AF' }}>Deadline</label>
-                  <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl" style={{ background: '#F4FAF4', border: '1.5px solid #E8F5E8' }}>
-                    <Calendar size={15} style={{ color: '#5F6E5F' }} />
-                    <input
-                      type="datetime-local"
-                      value={deadline}
-                      onChange={(e) => setDeadline(e.target.value)}
-                      className="flex-1 bg-transparent outline-none text-sm"
-                      style={{ color: '#243024' }}
-                    />
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: '#9CA3AF' }}>Deadline</label>
+                    <div
+                      className="relative flex items-center gap-2 px-4 py-2.5 rounded-xl cursor-pointer"
+                      style={{ background: '#F4FAF4', border: '1.5px solid #E8F5E8' }}
+                      onClick={() => {
+                        try {
+                          deadlineInputRef.current?.showPicker();
+                        } catch (e) {
+                          console.warn('showPicker not supported', e);
+                        }
+                      }}
+                    >
+                      <Calendar size={15} style={{ color: '#5F6E5F' }} />
+                      <span className="text-sm select-none flex-1" style={{ color: '#243024' }}>
+                        {formatDisplayDateTime(deadline) || 'Chưa thiết lập'}
+                      </span>
+                      <Calendar size={15} style={{ color: '#9CA3AF' }} className="ml-auto pointer-events-none" />
+                      <input
+                        ref={deadlineInputRef}
+                        type="datetime-local"
+                        value={deadline}
+                        onChange={(e) => setDeadline(e.target.value)}
+                        min={getLocalDateTimeString()}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        style={{ colorScheme: 'light' }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label
+                      className="block text-xs font-semibold uppercase tracking-wider mb-1.5"
+                      style={{ color: '#9CA3AF' }}
+                    >
+                      Thời lượng ước tính
+                    </label>
+                    <div
+                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl"
+                      style={{ background: '#F4FAF4', border: '1.5px solid #E8F5E8' }}
+                    >
+                      <Clock size={15} style={{ color: '#5F6E5F' }} />
+                      <input
+                        type="number"
+                        min="1"
+                        placeholder="Nhập số phút..."
+                        value={subtasks.length > 0 ? totalMin : estimatedMinutes}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setEstimatedMinutes(val === '' ? '' : Math.max(1, parseInt(val, 10)));
+                        }}
+                        disabled={subtasks.length > 0}
+                        className="flex-1 bg-transparent outline-none text-sm disabled:opacity-75 disabled:cursor-not-allowed"
+                        style={{ color: '#243024' }}
+                      />
+                      <span className="text-xs font-medium" style={{ color: '#9CA3AF' }}>phút</span>
+                    </div>
                   </div>
                 </div>
               ) : (
                 <div className="space-y-3">
                   <div>
                     <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: '#9CA3AF' }}>Ngày</label>
-                    <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl" style={{ background: '#F4FAF4', border: '1.5px solid #E8F5E8' }}>
+                    <div
+                      className="relative flex items-center gap-2 px-4 py-2.5 rounded-xl cursor-pointer"
+                      style={{ background: '#F4FAF4', border: '1.5px solid #E8F5E8' }}
+                      onClick={() => {
+                        try {
+                          dateInputRef.current?.showPicker();
+                        } catch (e) {
+                          console.warn('showPicker not supported', e);
+                        }
+                      }}
+                    >
                       <Calendar size={15} style={{ color: '#5F6E5F' }} />
-                      <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="flex-1 bg-transparent outline-none text-sm" style={{ color: '#243024' }} />
+                      <span className="text-sm select-none flex-1" style={{ color: '#243024' }}>
+                        {formatDisplayDate(date) || 'Chưa thiết lập'}
+                      </span>
+                      <Calendar size={15} style={{ color: '#9CA3AF' }} className="ml-auto pointer-events-none" />
+                      <input
+                        ref={dateInputRef}
+                        type="date"
+                        value={date}
+                        onChange={(e) => setDate(e.target.value)}
+                        min={getLocalDateString()}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        style={{ colorScheme: 'light' }}
+                      />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -267,6 +417,11 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
                     ))}
                   </div>
                 </div>
+              )}
+              {validationError && (
+                <p className="text-xs mt-2 flex items-center gap-1.5" style={{ color: '#C1644C' }}>
+                  <span>⚠️</span> {validationError}
+                </p>
               )}
             </div>
           </div>
@@ -379,9 +534,17 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
                         <div className="flex items-center gap-1 shrink-0">
                           <input
                             type="number"
-                            value={sub.estimatedMinutes}
+                            value={sub.estimatedMinutes || ''}
                             min={1}
-                            onChange={(e) => updateSubtask(sub.id, 'estimatedMinutes', Number(e.target.value))}
+                            onChange={(e) => {
+                              const val = e.target.value === '' ? 0 : Number(e.target.value);
+                              updateSubtask(sub.id, 'estimatedMinutes', val);
+                            }}
+                            onBlur={() => {
+                              if (!sub.estimatedMinutes || sub.estimatedMinutes < 1) {
+                                updateSubtask(sub.id, 'estimatedMinutes', 15);
+                              }
+                            }}
                             className="w-12 text-right bg-transparent outline-none text-xs font-medium"
                             style={{ color: '#5F6E5F' }}
                           />

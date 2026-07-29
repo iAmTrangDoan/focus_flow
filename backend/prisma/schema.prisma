@@ -25,6 +25,7 @@ model User {
   behaviorProfile       BehaviorProfile?
   procrastinationScores ProcrastinationScore[]
   aiInsights            AiInsight[]
+  notifications         Notification[]
 
   @@map("users")
 }
@@ -83,6 +84,8 @@ model Subtask {
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
   task             Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  scheduleSlots    ScheduleSlot[]
+  pomodoroSessions PomodoroSession[]
 
   @@index([taskId])
   @@map("subtasks")
@@ -92,6 +95,7 @@ model ScheduleSlot {
   id                  String              @id @default(cuid())
   userId              String              @map("user_id")
   taskId              String              @map("task_id")
+  subtaskId           String?             @map("subtask_id")
   startAt             DateTime            @map("start_at")
   endAt               DateTime            @map("end_at")
   isManual            Boolean             @default(false) @map("is_manual")
@@ -101,33 +105,51 @@ model ScheduleSlot {
   createdAt           DateTime            @default(now()) @map("created_at")
   updatedAt           DateTime            @updatedAt @map("updated_at")
   task                Task                @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  subtask             Subtask?            @relation(fields: [subtaskId], references: [id], onDelete: SetNull)
+  pomodoroSessions    PomodoroSession[]
   user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([taskId])
+  @@index([subtaskId])
   @@index([startAt])
   @@map("schedule_slots")
 }
 
 model PomodoroSession {
-  id              String              @id @default(cuid())
-  userId          String              @map("user_id")
-  taskId          String?             @map("task_id")
-  startedAt       DateTime            @default(now()) @map("started_at")
-  endedAt         DateTime?           @map("ended_at")
-  plannedDuration Int                 @default(25) @map("planned_duration")
-  actualDuration  Int?                @map("actual_duration")
-  status          PomodoroStatus      @default(IN_PROGRESS)
-  sessionType     PomodoroSessionType @default(WORK) @map("session_type")
-  pauseCount      Int                 @default(0) @map("pause_count")
-  dropReason      String?             @map("drop_reason")
-  createdAt       DateTime            @default(now()) @map("created_at")
-  task            Task?               @relation(fields: [taskId], references: [id])
-  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  behaviorLogs    BehaviorLog[]
+  id                       String              @id @default(cuid())
+  userId                   String              @map("user_id")
+  taskId                   String?             @map("task_id")
+  subtaskId                String?             @map("subtask_id")
+  scheduleSlotId           String?             @map("schedule_slot_id")
+  startedAt                DateTime            @default(now()) @map("started_at")
+  endedAt                  DateTime?           @map("ended_at")
+  lastResumedAt            DateTime?           @map("last_resumed_at")
+  pausedAt                 DateTime?           @map("paused_at")
+  plannedDuration          Int                 @default(25) @map("planned_duration")
+  actualDuration           Int?                @map("actual_duration")
+  accumulatedActiveSeconds Int                 @default(0) @map("accumulated_active_seconds")
+  status                   PomodoroStatus      @default(IN_PROGRESS)
+  sessionType              PomodoroSessionType @default(WORK) @map("session_type")
+  pauseCount               Int                 @default(0) @map("pause_count")
+  dropReason               String?             @map("drop_reason")
+  dropDetails              String?             @map("drop_details")
+  retryOfSessionId         String?             @map("retry_of_session_id")
+  createdAt                DateTime            @default(now()) @map("created_at")
+
+  task                     Task?               @relation(fields: [taskId], references: [id])
+  subtask                  Subtask?            @relation(fields: [subtaskId], references: [id], onDelete: SetNull)
+  scheduleSlot             ScheduleSlot?       @relation(fields: [scheduleSlotId], references: [id], onDelete: SetNull)
+  user                     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  retryOfSession           PomodoroSession?    @relation("SessionRetries", fields: [retryOfSessionId], references: [id], onDelete: SetNull)
+  retries                  PomodoroSession[]   @relation("SessionRetries")
+  behaviorLogs             BehaviorLog[]
 
   @@index([userId])
   @@index([taskId])
+  @@index([subtaskId])
+  @@index([scheduleSlotId])
+  @@index([retryOfSessionId])
   @@index([status])
   @@map("pomodoro_sessions")
 }
@@ -237,6 +259,7 @@ model BehaviorLog {
   taskId        String?   @map("task_id")
   sessionId     String?   @map("session_id")
   eventType     EventType @map("event_type")
+  dedupeKey     String?   @unique @map("dedupe_key")
   metadata      Json?
   scheduledTime DateTime? @map("scheduled_time")
   delayMinutes  Int?      @map("delay_minutes")
@@ -252,6 +275,25 @@ model BehaviorLog {
   @@index([eventType])
   @@index([occurredAt])
   @@map("behavior_logs")
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  category    String
+  title       String
+  description String
+  actionType  String?  @map("action_type")
+  metadata    Json?
+  dedupeKey   String?  @unique @map("dedupe_key")
+  read        Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, read])
+  @@map("notifications")
 }
 
 model BehaviorProfile {

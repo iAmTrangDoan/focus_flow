@@ -43,6 +43,7 @@ export interface Task {
   title: string
   type: TaskType
   importance: Importance
+  estimatedMinutes?: number
   status: TaskStatus
   priorityScore: number
   deadline?: string

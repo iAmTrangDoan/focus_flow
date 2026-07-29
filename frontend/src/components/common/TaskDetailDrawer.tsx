@@ -109,12 +109,23 @@ function datetimeLocalToIso(val: string): string {
   return new Date(val).toISOString();
 }
 
-/* ─── Mini task history ─── */
-const HISTORY = [
-  { dot: '#9CA3AF', text: 'Tạo lúc 08:32 sáng nay' },
-  { dot: '#4A7FB8', text: 'Dời lịch 1 lần: Thứ 3 → Hôm nay' },
-  { dot: '#E8993A', text: 'Bắt đầu Pomodoro lúc 10:00' },
-];
+/** ISO string or formatted string → dd/mm/yyyy HH:mm format for display */
+function formatDisplayDateTime(iso: string | undefined | null): string {
+  if (!iso) return '';
+
+  // Handle already-formatted "dd/mm/yyyy, HH:mm" format
+  const match = iso.match(/^(\d{2})\/(\d{2})\/(\d{4}),\s*(\d{2}):(\d{2})$/);
+  if (match) {
+    const [, dd, mm, yyyy, HH, min] = match;
+    return `${dd}/${mm}/${yyyy} ${HH}:${min}`;
+  }
+
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 
 /* ─── Props ─── */
 interface Props {
@@ -132,7 +143,11 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
   const [confettiOn, setConfettiOn] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const deadlineInputRef = useRef<HTMLInputElement>(null);
+  const startInputRef = useRef<HTMLInputElement>(null);
+  const endInputRef = useRef<HTMLInputElement>(null);
 
   /* Sync draft when task changes */
   useEffect(() => {
@@ -142,6 +157,7 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
     setConfettiOn(false);
     setAiLoading(false);
     setAiError(null);
+    setValidationError(null);
   }, [task]);
 
   const aiLoadingRef = useRef(false);
@@ -256,9 +272,46 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
   const pct = totalCount > 0 ? (doneCount / totalCount) * 100 : 0;
   const isDone = draft.status === 'done';
   const scoreLabel = draft.priorityScore >= 80 ? 'Cao' : draft.priorityScore >= 50 ? 'Trung bình' : 'Thấp';
+  const totalMin = draft.subtasks.reduce((s, t) => s + (Number(t.estimatedMinutes) || 0), 0);
 
+  const handleSave = () => {
+    if (!draft) return;
 
+    let updatedDraft = { ...draft };
+    if (updatedDraft.type === 'flexible') {
+      updatedDraft.estimatedMinutes = updatedDraft.subtasks.length > 0
+        ? totalMin
+        : updatedDraft.estimatedMinutes;
+    } else {
+      updatedDraft.estimatedMinutes = undefined;
 
+      const parts = updatedDraft.fixedTime?.split('–');
+      const startStr = parts?.[0]?.trim();
+      const endStr = parts?.[1]?.trim();
+
+      if (!startStr || !endStr) {
+        setValidationError('Vui lòng chọn đầy đủ ngày và giờ bắt đầu, giờ kết thúc.');
+        return;
+      }
+
+      const start = new Date(startStr);
+      const end = new Date(endStr);
+
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+        setValidationError('Định dạng ngày giờ không hợp lệ.');
+        return;
+      }
+
+      if (end <= start) {
+        setValidationError('Giờ kết thúc phải sau giờ bắt đầu.');
+        return;
+      }
+    }
+
+    setValidationError(null);
+    onSave(updatedDraft);
+    onClose();
+  };
   return (
     <>
       {/* Backdrop */}
@@ -289,8 +342,8 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
           >
             {isDone
               ? <div className="flex items-center justify-center w-6 h-6 rounded-full" style={{ background: '#5FAF6E' }}>
-                  <Check size={14} color="#fff" strokeWidth={3} />
-                </div>
+                <Check size={14} color="#fff" strokeWidth={3} />
+              </div>
               : <Circle size={24} style={{ color: '#D1D5DB' }} />}
           </button>
 
@@ -367,17 +420,62 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
             {/* Deadline / fixed time */}
             <div className="mt-3">
               {draft.type === 'flexible' ? (
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: '#9CA3AF' }}>Deadline</label>
-                  <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl" style={{ background: '#F4FAF4', border: '1.5px solid #E8F5E8' }}>
-                    <Calendar size={14} style={{ color: '#5F6E5F' }} />
-                    <input
-                      type="datetime-local"
-                      value={isoToDatetimeLocal(draft.deadline)}
-                      onChange={(e) => setDraft((d) => d ? { ...d, deadline: datetimeLocalToIso(e.target.value) } : null)}
-                      className="flex-1 bg-transparent outline-none text-sm"
-                      style={{ color: '#243024', colorScheme: 'light' }}
-                    />
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: '#9CA3AF' }}>Deadline</label>
+                    <div
+                      className="relative flex items-center gap-2 px-4 py-2.5 rounded-xl cursor-pointer"
+                      style={{ background: '#F4FAF4', border: '1.5px solid #E8F5E8' }}
+                      onClick={() => {
+                        try {
+                          deadlineInputRef.current?.showPicker();
+                        } catch (e) {
+                          console.warn('showPicker not supported', e);
+                        }
+                      }}
+                    >
+                      <Calendar size={14} style={{ color: '#5F6E5F' }} />
+                      <span className="text-sm select-none flex-1" style={{ color: '#243024' }}>
+                        {formatDisplayDateTime(draft.deadline) || 'Chưa thiết lập'}
+                      </span>
+                      <Calendar size={14} style={{ color: '#9CA3AF' }} className="ml-auto pointer-events-none" />
+                      <input
+                        ref={deadlineInputRef}
+                        type="datetime-local"
+                        value={isoToDatetimeLocal(draft.deadline)}
+                        onChange={(e) => setDraft((d) => d ? { ...d, deadline: datetimeLocalToIso(e.target.value) } : null)}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        style={{ colorScheme: 'light' }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label
+                      className="block text-xs font-semibold uppercase tracking-wider mb-1.5"
+                      style={{ color: '#9CA3AF' }}
+                    >
+                      Thời lượng ước tính
+                    </label>
+                    <div
+                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl"
+                      style={{ background: '#F4FAF4', border: '1.5px solid #E8F5E8' }}
+                    >
+                      <Clock size={14} style={{ color: '#5F6E5F' }} />
+                      <input
+                        type="number"
+                        min="1"
+                        placeholder="Nhập số phút..."
+                        value={draft.subtasks.length > 0 ? totalMin : (draft.estimatedMinutes || '')}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setDraft((d) => d ? { ...d, estimatedMinutes: val === '' ? undefined : Math.max(1, parseInt(val, 10)) } : null);
+                        }}
+                        disabled={draft.subtasks.length > 0}
+                        className="flex-1 bg-transparent outline-none text-sm disabled:opacity-75 disabled:cursor-not-allowed"
+                        style={{ color: '#243024' }}
+                      />
+                      <span className="text-xs font-medium" style={{ color: '#9CA3AF' }}>phút</span>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -385,10 +483,25 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
                   <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: '#9CA3AF' }}>Khung giờ</label>
                   {/* Fixed task: chọn ngày + giờ bắt đầu / kết thúc riêng */}
                   <div className="flex flex-col gap-2">
-                    <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl" style={{ background: '#F4FAF4', border: '1.5px solid #E8F5E8' }}>
+                    <div
+                      className="relative flex items-center gap-2 px-4 py-2.5 rounded-xl cursor-pointer"
+                      style={{ background: '#F4FAF4', border: '1.5px solid #E8F5E8' }}
+                      onClick={() => {
+                        try {
+                          startInputRef.current?.showPicker();
+                        } catch (e) {
+                          console.warn('showPicker not supported', e);
+                        }
+                      }}
+                    >
                       <Clock size={14} style={{ color: '#5FAF6E' }} />
-                      <span className="text-xs font-medium w-16 shrink-0" style={{ color: '#9CA3AF' }}>Bắt đầu</span>
+                      <span className="text-xs font-medium w-16 shrink-0 select-none" style={{ color: '#9CA3AF' }}>Bắt đầu</span>
+                      <span className="text-sm select-none flex-1" style={{ color: '#243024' }}>
+                        {formatDisplayDateTime(draft.fixedTime?.split('–')[0]?.trim()) || 'Chưa thiết lập'}
+                      </span>
+                      <Calendar size={14} style={{ color: '#9CA3AF' }} className="ml-auto pointer-events-none" />
                       <input
+                        ref={startInputRef}
                         type="datetime-local"
                         value={isoToDatetimeLocal(draft.fixedTime?.split('–')[0]?.trim())}
                         onChange={(e) => {
@@ -396,14 +509,29 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
                           const end = draft.fixedTime?.split('–')[1]?.trim() ?? '';
                           setDraft((d) => d ? { ...d, fixedTime: `${start}–${end}` } : null);
                         }}
-                        className="flex-1 bg-transparent outline-none text-sm"
-                        style={{ color: '#243024', colorScheme: 'light' }}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        style={{ colorScheme: 'light' }}
                       />
                     </div>
-                    <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl" style={{ background: '#F4FAF4', border: '1.5px solid #E8F5E8' }}>
+                    <div
+                      className="relative flex items-center gap-2 px-4 py-2.5 rounded-xl cursor-pointer"
+                      style={{ background: '#F4FAF4', border: '1.5px solid #E8F5E8' }}
+                      onClick={() => {
+                        try {
+                          endInputRef.current?.showPicker();
+                        } catch (e) {
+                          console.warn('showPicker not supported', e);
+                        }
+                      }}
+                    >
                       <Clock size={14} style={{ color: '#C1644C' }} />
-                      <span className="text-xs font-medium w-16 shrink-0" style={{ color: '#9CA3AF' }}>Kết thúc</span>
+                      <span className="text-xs font-medium w-16 shrink-0 select-none" style={{ color: '#9CA3AF' }}>Kết thúc</span>
+                      <span className="text-sm select-none flex-1" style={{ color: '#243024' }}>
+                        {formatDisplayDateTime(draft.fixedTime?.split('–')[1]?.trim()) || 'Chưa thiết lập'}
+                      </span>
+                      <Calendar size={14} style={{ color: '#9CA3AF' }} className="ml-auto pointer-events-none" />
                       <input
+                        ref={endInputRef}
                         type="datetime-local"
                         value={isoToDatetimeLocal(draft.fixedTime?.split('–')[1]?.trim())}
                         onChange={(e) => {
@@ -411,12 +539,17 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
                           const end = datetimeLocalToIso(e.target.value);
                           setDraft((d) => d ? { ...d, fixedTime: `${start}–${end}` } : null);
                         }}
-                        className="flex-1 bg-transparent outline-none text-sm"
-                        style={{ color: '#243024', colorScheme: 'light' }}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        style={{ colorScheme: 'light' }}
                       />
                     </div>
                   </div>
                 </div>
+              )}
+              {validationError && (
+                <p className="text-xs mt-2 flex items-center gap-1.5" style={{ color: '#C1644C' }}>
+                  <span>⚠️</span> {validationError}
+                </p>
               )}
             </div>
           </div>
@@ -515,8 +648,8 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
                   >
                     {sub.done
                       ? <div className="flex items-center justify-center w-5 h-5 rounded-full" style={{ background: '#5FAF6E' }}>
-                          <Check size={11} color="#fff" strokeWidth={3} />
-                        </div>
+                        <Check size={11} color="#fff" strokeWidth={3} />
+                      </div>
                       : <Circle size={18} style={{ color: '#D1D5DB' }} />}
                   </button>
                   <input
@@ -533,9 +666,17 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
                   <div className="flex items-center gap-1 shrink-0">
                     <input
                       type="number"
-                      value={sub.estimatedMinutes || 15}
+                      value={sub.estimatedMinutes || ''}
                       min={1}
-                      onChange={(e) => updateSubtask(sub.id, 'estimatedMinutes', Number(e.target.value))}
+                      onChange={(e) => {
+                        const val = e.target.value === '' ? 0 : Number(e.target.value);
+                        updateSubtask(sub.id, 'estimatedMinutes', val);
+                      }}
+                      onBlur={() => {
+                        if (!sub.estimatedMinutes || sub.estimatedMinutes < 1) {
+                          updateSubtask(sub.id, 'estimatedMinutes', 15);
+                        }
+                      }}
                       className="w-12 text-right bg-transparent outline-none text-xs font-medium"
                       style={{ color: '#5F6E5F' }}
                     />
@@ -580,7 +721,7 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
           </div>
 
           {/* Mini history */}
-          <div>
+          {/* <div>
             <label className="block text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: '#9CA3AF' }}>
               Lịch sử
             </label>
@@ -595,7 +736,7 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
                 ))}
               </div>
             </div>
-          </div>
+          </div> */}
         </div>
 
         {/* Footer */}
@@ -644,7 +785,7 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
           </button>
 
           <button
-            onClick={() => { if (draft) { onSave(draft); onClose(); } }}
+            onClick={handleSave}
             className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
             style={{ background: '#5FAF6E', color: '#fff' }}
           >

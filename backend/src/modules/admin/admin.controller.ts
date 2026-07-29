@@ -51,6 +51,12 @@ export class AdminController {
         return this.adminService.getDashboard();
     }
 
+    @Get('recent-activities')
+    @ApiOperation({ summary: 'Hoạt động hệ thống gần đây (24h qua)' })
+    getRecentActivities() {
+        return this.adminService.getRecentActivities();
+    }
+
     //SYSTEM CONFIGS 
     @Get('configs')
     @ApiOperation({ summary: 'Lấy cấu hình hệ thống' })

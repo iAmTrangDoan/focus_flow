@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -15,8 +15,11 @@ import {
   LogOut,
   Bell,
   HelpCircle,
+  Shield,
 } from 'lucide-react';
 import useAuthStore from '../../store/authStore';
+import notificationsService from '../../services/notifications.service';
+import socketService from '../../services/socket.service';
 
 interface NavItem {
   icon: React.ElementType;
@@ -36,6 +39,40 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [hasNewAiInsights, setHasNewAiInsights] = useState(false);
+
+  const loadUnreadCounts = useCallback(async () => {
+    try {
+      const list = await notificationsService.getNotifications();
+      const unread = list.filter((n) => !n.read);
+      setUnreadCount(unread.length);
+      setHasNewAiInsights(unread.some((n) => n.category === 'ai_insights'));
+    } catch (err) {
+      console.error('Failed to load notifications for sidebar:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadUnreadCounts();
+
+    const handleNotificationsChanged = () => {
+      loadUnreadCounts();
+    };
+
+    window.addEventListener('notifications_changed', handleNotificationsChanged);
+
+    // Socket listener for realtime new notifications
+    const handleRealtime = () => {
+      loadUnreadCounts();
+    };
+    socketService.onNotification(handleRealtime);
+
+    return () => {
+      window.removeEventListener('notifications_changed', handleNotificationsChanged);
+      socketService.offNotification(handleRealtime);
+    };
+  }, [loadUnreadCounts]);
 
   const handleLogout = async () => {
     await logout();
@@ -43,6 +80,16 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   };
 
   const navSections: { title: string; items: NavItem[] }[] = [
+    ...(user?.role === 'ADMIN'
+      ? [
+          {
+            title: 'Quản trị',
+            items: [
+              { icon: Shield, label: 'Admin Console', path: '/admin/dashboard', badge: 'ADMIN' },
+            ],
+          },
+        ]
+      : []),
     {
       title: 'Main',
       items: [
@@ -56,8 +103,18 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       title: 'Tools',
       items: [
         { icon: BarChart2, label: 'Analytics', path: '/analytics' },
-        { icon: Sparkles, label: 'AI Insights', path: '/ai-insights', badge: 'New' },
-        { icon: Bell, label: 'Thông báo', path: '/notifications', dot: true },
+        {
+          icon: Sparkles,
+          label: 'AI Insights',
+          path: '/ai-insights',
+          badge: hasNewAiInsights ? 'New' : undefined,
+        },
+        {
+          icon: Bell,
+          label: 'Thông báo',
+          path: '/notifications',
+          dot: unreadCount > 0,
+        },
       ],
     },
     {
@@ -162,12 +219,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       {/* User card */}
       <div className="px-4 pb-6 shrink-0">
         <Link
-          to="/profile"
+          to="/settings"
           onClick={() => onClose?.()}
           className="w-full flex items-center gap-3 rounded-2xl px-3 py-3 transition-all duration-150 hover:shadow-sm"
           style={{
-            background: activePath === '/profile' ? '#DDF3DF' : '#F4FAF4',
-            border: activePath === '/profile' ? '1px solid rgba(95,175,110,0.4)' : '1px solid transparent',
+            background: activePath === '/settings' ? '#DDF3DF' : '#F4FAF4',
+            border: activePath === '/settings' ? '1px solid rgba(95,175,110,0.4)' : '1px solid transparent',
           }}
         >
           <div
@@ -178,7 +235,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </div>
           <div className="flex-1 min-w-0 text-left">
             <p className="text-sm font-semibold truncate" style={{ color: '#243024' }}>{displayName}</p>
-            <p className="text-xs truncate" style={{ color: '#5F6E5F' }}>Streak: 5 ngày</p>
           </div>
           <ChevronRight size={14} style={{ color: '#9CA3AF' }} className="shrink-0" />
         </Link>
@@ -253,9 +309,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       </nav>
 
       {/* Main content area */}
-      <main className="flex-1 min-w-0 overflow-y-auto pb-16 lg:pb-0" style={{ background: '#F4FAF4' }}>
-        {children}
-      </main>
+      <div className="flex-1 min-w-0 flex flex-col min-h-screen" style={{ background: '#F4FAF4' }}>
+        <main className="flex-1 pb-16 lg:pb-0">
+          {children}
+        </main>
+      </div>
     </div>
   );
 }

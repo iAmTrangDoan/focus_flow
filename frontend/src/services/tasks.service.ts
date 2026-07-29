@@ -5,10 +5,15 @@ export interface CreateTaskPayload {
   title: string
   type: TaskType
   importance: Importance
+  estimatedMinutes?: number;
   deadline?: string
   fixedStart?: string
   fixedEnd?: string
-  subtasks: { title: string; aiEstimatedMinutes: number }[]
+  subtasks: {
+    title: string;
+    estimatedMinutes: number;
+    sortOrder?: number;
+  }[]
 }
 
 export interface UpdateTaskPayload {
@@ -16,19 +21,28 @@ export interface UpdateTaskPayload {
   type?: TaskType
   importance?: Importance
   status?: TaskStatus
+  estimatedMinutes?: number;
   deadline?: string
   fixedStart?: string
   fixedEnd?: string
   subtasks?: Subtask[]
 }
 
-// Map trạng thái từ API (dấu gạch ngang) sang type nội bộ (gạch dưới)
+// Map trạng thái từ API sang type nội bộ 
 function mapStatus(apiStatus: string): TaskStatus {
-  switch (apiStatus) {
-    case 'in-progress': return 'in_progress'
-    case 'completed': return 'done'
-    case 'todo': return 'todo'
-    default: return apiStatus as TaskStatus
+  if (!apiStatus) return 'todo'
+  const statusLower = apiStatus.toLowerCase()
+  switch (statusLower) {
+    case 'in-progress':
+    case 'in_progress':
+      return 'in_progress'
+    case 'completed':
+    case 'done':
+      return 'done'
+    case 'todo':
+      return 'todo'
+    default:
+      return statusLower as TaskStatus
   }
 }
 
@@ -50,6 +64,7 @@ function mapTaskFromApi(raw: any): Task {
     importance: raw.importance ?? 'LOW',
     status: mapStatus(raw.status),
     priorityScore: raw.priorityScore ?? 50,
+    estimatedMinutes: raw.estimatedMinutes ?? undefined,
     deadline: raw.deadline ?? undefined,
     fixedTime: raw.fixedStart && raw.fixedEnd
       ? `${raw.fixedStart}–${raw.fixedEnd}`
@@ -57,8 +72,8 @@ function mapTaskFromApi(raw: any): Task {
     subtasks: (raw.subtasks ?? []).map((s: any) => ({
       id: String(s.id),
       title: s.title,
-      done: s.completed ?? s.done ?? false,
-      estimatedMinutes: s.aiEstimatedMinutes ?? s.estimatedMinutes ?? 15,
+      done: s.isCompleted ?? false,
+      estimatedMinutes: s.estimatedMinutes ?? 15,
     })),
   }
 }
@@ -76,6 +91,7 @@ const tasksService = {
       title: payload.title,
       isFixedTask: payload.type === 'fixed',
       importance: payload.importance,
+      estimatedMinutes: payload.estimatedMinutes,
       deadline: payload.type === 'flexible' ? payload.deadline : undefined,
       fixedStart: payload.fixedStart,
       fixedEnd: payload.fixedEnd,
@@ -87,22 +103,59 @@ const tasksService = {
 
   /** Cập nhật task */
   async updateTask(id: string, payload: UpdateTaskPayload): Promise<Task> {
-    const body: any = { ...payload }
-    if (payload.status) body.status = toApiStatus(payload.status)
+    const body: any = { title: payload.title, importance: payload.importance }
+
     if (payload.type !== undefined) {
-      body.isFixedTask = payload.type === 'fixed'
-      delete body.type
+      body.isFixedTask = payload.type === 'fixed';
     }
-    if (payload.subtasks) {
-      body.subtasks = payload.subtasks.map(s => ({
-        id: s.id,
-        title: s.title,
-        completed: s.done,
-        estimatedMinutes: s.estimatedMinutes ?? 15,
-      }))
+
+    if (payload.estimatedMinutes !== undefined) {
+      body.estimatedMinutes = payload.estimatedMinutes;
     }
-    const { data } = await api.put<any>(`/tasks/${id}`, body)
-    return mapTaskFromApi(data)
+
+    if (payload.deadline !== undefined) {
+      body.deadline = payload.deadline
+        ? new Date(payload.deadline).toISOString()
+        : undefined;
+    }
+
+    if (payload.fixedStart !== undefined) {
+      body.fixedStart = payload.fixedStart
+        ? new Date(payload.fixedStart).toISOString()
+        : undefined;
+    }
+
+    if (payload.fixedEnd !== undefined) {
+      body.fixedEnd = payload.fixedEnd
+        ? new Date(payload.fixedEnd).toISOString()
+        : undefined;
+    }
+
+    if (payload.subtasks !== undefined) {
+      body.subtasks = payload.subtasks
+        .filter((subtask) => subtask.title.trim())
+        .map((subtask, index) => {
+          const isTemporaryId =
+            subtask.id.startsWith('new-') ||
+            subtask.id.startsWith('ai-') ||
+            subtask.id.startsWith('m-');
+
+          return {
+            ...(!isTemporaryId && subtask.id ? { id: subtask.id } : {}),
+            title: subtask.title.trim(),
+            estimatedMinutes: subtask.estimatedMinutes ?? 15,
+            isCompleted: subtask.done,
+            sortOrder: index,
+          };
+        });
+    }
+
+    const { data } = await api.put<any>(
+      `/tasks/${id}`,
+      body,
+    );
+
+    return mapTaskFromApi(data);
   },
 
   /** Xoá task */
@@ -120,7 +173,7 @@ const tasksService = {
   async getAiSuggestedSubtasks(title: string, deadline?: string, importance?: string): Promise<{ title: string; aiEstimatedMinutes: number }[]> {
     const { data } = await api.post<{ subtasks: { title: string; aiEstimatedMinutes: number }[] }>(
       '/ai/suggest-subtasks',
-      { taskTitle: title, deadline, eisenhowerQuadrant: importance }
+      { taskTitle: title, deadline, importance }
     )
     return data.subtasks || []
   },

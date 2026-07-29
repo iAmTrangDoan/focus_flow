@@ -162,6 +162,57 @@ function PasswordCard({ onToast }: { onToast: (t: ToastMessage) => void }) {
   );
 }
 
+/* ─── Demo Data Card ─── */
+function DemoDataCard({ onToast }: { onToast: (t: ToastMessage) => void }) {
+  const [loading, setLoading] = useState(false);
+
+  const handleSeed = async () => {
+    if (confirm('Hành động này sẽ XÓA TOÀN BỘ dữ liệu công việc, lịch làm việc, phiên Pomodoro, AI insight và nhật ký hiện tại của bạn để thay thế bằng dữ liệu mẫu. Bạn có chắc chắn muốn tiếp tục?')) {
+      setLoading(true);
+      try {
+        await accountService.seedMockData();
+        onToast(createToast('success', 'Đã khởi tạo dữ liệu mẫu thành công! Trang web sẽ tự động tải lại...'));
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
+      } catch (err: any) {
+        const msg = err?.response?.data?.message || 'Có lỗi xảy ra khi tạo dữ liệu mẫu.';
+        onToast(createToast('error', msg));
+        setLoading(false);
+      }
+    }
+  };
+
+  return (
+    <div
+      className="rounded-3xl p-6 mt-6"
+      style={{ background: '#FFFFFF', boxShadow: '0 2px 16px rgba(36,48,36,0.07)' }}
+    >
+      <h3 className="text-base font-semibold mb-3" style={{ color: '#243024' }}>
+        Dữ liệu Demo & Giả lập
+      </h3>
+      <p className="text-xs mb-4 leading-relaxed" style={{ color: '#6B7280' }}>
+        Hỗ trợ đánh giá hiển thị giao diện: Lịch tuần, biểu đồ năng suất (Analytics), thông báo realtime và các báo cáo AI Insight mẫu.
+      </p>
+      <button
+        onClick={handleSeed}
+        disabled={loading}
+        className="w-full py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 hover:opacity-90 active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+        style={{ background: '#E8993A', color: '#fff' }}
+      >
+        {loading ? (
+          <>
+            <Loader2 size={16} className="animate-spin" />
+            Đang khởi tạo...
+          </>
+        ) : (
+          'Khởi tạo dữ liệu mẫu'
+        )}
+      </button>
+    </div>
+  );
+}
+
 /* ─── Activity Timeline ─── */
 function ActivityTimeline() {
   const [filter, setFilter] = useState<FilterType>('all');
@@ -443,6 +494,9 @@ export default function ProfilePage({ user, onUserChange, onToast }: ProfilePage
 
           {/* Password card */}
           <PasswordCard onToast={onToast} />
+
+          {/* Demo data card */}
+          <DemoDataCard onToast={onToast} />
         </div>
 
         {/* ─── Right column ─── */}

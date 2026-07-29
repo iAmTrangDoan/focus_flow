@@ -21,8 +21,18 @@ const useAuthStore = create<AuthState>((set) => ({
   isLoading: false,
   error: null,
 
-  setUser: (user) =>
-    set({ user, isAuthenticated: !!user, error: null }),
+  //Cập nhật user cả store Zustand và localStorage
+  setUser: (user) => {
+    if (user) {
+      localStorage.setItem('user', JSON.stringify(user));
+    }
+    else {
+      localStorage.removeItem('user');
+    }
+    set({ user: user, isAuthenticated: !!user, error: null });
+
+  },
+
 
   setError: (error) => set({ error }),
 

@@ -6,39 +6,28 @@ import {
   Bell,
   Globe,
   AlertTriangle,
-  Camera,
-  Copy,
-  Plus,
   Trash2,
   ChevronDown,
 } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Modal } from '../components/ui/Modal';
-import { Badge } from '../components/ui/Badge';
 import { createToast, type ToastMessage } from '../components/common/Toast';
 import accountService from '../services/account.service';
 import settingsService from '../services/settings.service';
+import useAuthStore from '../store/authStore'; 
 
 
 /* ─── Types ─── */
 type Section = 'account' | 'work-hours' | 'pomodoro' | 'notifications' | 'timezone' | 'danger';
 
-interface WorkDay {
-  day: string;
-  dayIndex: number;
-  enabled: boolean;
-  slots: { start: string; end: string }[];
-}
-
-/* ─── Mock Data ─── */
-const INITIAL_WORK_DAYS: WorkDay[] = [
-  { day: 'Thứ 2', dayIndex: 1, enabled: true, slots: [{ start: '08:00', end: '12:00' }, { start: '13:30', end: '17:30' }] },
-  { day: 'Thứ 3', dayIndex: 2, enabled: true, slots: [{ start: '08:00', end: '12:00' }, { start: '13:30', end: '17:30' }] },
-  { day: 'Thứ 4', dayIndex: 3, enabled: true, slots: [{ start: '08:00', end: '12:00' }, { start: '13:30', end: '17:30' }] },
-  { day: 'Thứ 5', dayIndex: 4, enabled: true, slots: [{ start: '08:00', end: '12:00' }, { start: '13:30', end: '17:30' }] },
-  { day: 'Thứ 6', dayIndex: 5, enabled: true, slots: [{ start: '08:00', end: '12:00' }, { start: '13:30', end: '17:30' }] },
-  { day: 'Thứ 7', dayIndex: 6, enabled: true, slots: [{ start: '08:00', end: '12:00' }] },
-  { day: 'Chủ Nhật', dayIndex: 0, enabled: false, slots: [] },
+const DAY_BUTTONS = [
+  { label: 'T2', index: 1 },
+  { label: 'T3', index: 2 },
+  { label: 'T4', index: 3 },
+  { label: 'T5', index: 4 },
+  { label: 'T6', index: 5 },
+  { label: 'T7', index: 6 },
+  { label: 'CN', index: 7 },
 ];
 
 const TIMEZONES = [
@@ -350,6 +339,8 @@ function DeleteAccountModal({ open, onClose, onConfirm, userEmail }: DeleteAccou
 /* ─── Section Components ─── */
 
 function AccountSection({ onToast }: { onToast: (toast: ToastMessage) => void }) {
+  const setUser = useAuthStore((state) => state.setUser); 
+  
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -358,7 +349,8 @@ function AccountSection({ onToast }: { onToast: (toast: ToastMessage) => void })
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
 
-  /* Load profile */
+  //Load profile người dùng
+
   useEffect(() => {
     accountService.getProfile()
       .then((profile) => {
@@ -371,13 +363,26 @@ function AccountSection({ onToast }: { onToast: (toast: ToastMessage) => void })
   }, []);
 
   const handleSaveProfile = async () => {
-    setSavingProfile(true);
+    const normalizedDisplayName = displayName.trim();
+
+    if (!normalizedDisplayName) {
+      onToast(createToast('error', 'Tên hiển thị không được để trống'));
+      return;
+    }
+      setSavingProfile(true);
     try {
-      await accountService.updateProfile({ displayName });
+      const updatedUser = await accountService.updateProfile({ displayName: normalizedDisplayName, });
+
+      setDisplayName(updatedUser.displayName ?? '');
+
+      setUser(updatedUser);
+
       onToast(createToast('success', 'Đã lưu thay đổi tài khoản'));
+
     } catch (err: any) {
       onToast(createToast('error', err?.message ?? 'Không thể lưu thay đổi'));
-    } finally {
+    } 
+    finally {
       setSavingProfile(false);
     }
   };
@@ -405,22 +410,11 @@ function AccountSection({ onToast }: { onToast: (toast: ToastMessage) => void })
         <SectionHeader title="Thông tin tài khoản" />
         <div className="px-6 pb-6">
           <div className="flex items-center gap-6 mb-8">
-            <div className="relative rounded-full overflow-hidden" style={{ width: 96, height: 96 }}>
-              <img
-                src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&h=200&fit=crop&crop=face"
-                alt="Avatar"
-                className="w-full h-full object-cover"
-              />
-              <div
-                className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity cursor-pointer"
-                style={{ background: 'rgba(36, 48, 36, 0.5)' }}
-              >
-                <Camera size={24} style={{ color: '#FFFFFF' }} />
-              </div>
+            <div className="relative rounded-full flex items-center justify-center text-2xl font-bold shrink-0 shadow-inner" style={{ width: 96, height: 96, background: '#5FAF6E', color: '#fff' }}>
+              {displayName ? displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : 'U'}
             </div>
             <div>
-              <Button variant="secondary"><Camera size={16} className="mr-2 inline" />Đổi ảnh</Button>
-              <p className="text-xs mt-2" style={{ color: '#9CA3AF' }}>JPG, PNG. Tối đa 2MB.</p>
+              <p className="text-xs mt-2" style={{ color: '#5F6E5F' }}>Ảnh đại diện được tạo tự động từ tên hiển thị của bạn.</p>
             </div>
           </div>
 
@@ -432,8 +426,7 @@ function AccountSection({ onToast }: { onToast: (toast: ToastMessage) => void })
             <div>
               <label className="block text-sm font-medium mb-2" style={{ color: '#243024' }}>Email</label>
               <div className="flex items-center gap-2">
-                <Input value={email} onChange={() => {}} disabled />
-                <Badge variant="neutral">Đã xác thực</Badge>
+                <Input value={email} onChange={() => { }} disabled />
               </div>
             </div>
             <div className="pt-4 flex justify-end">
@@ -467,79 +460,48 @@ function AccountSection({ onToast }: { onToast: (toast: ToastMessage) => void })
           </div>
         </div>
       </Card>
+
     </div>
   );
 }
 
 
 function WorkHoursSection({ onToast }: { onToast: (toast: ToastMessage) => void }) {
-  const [workDays, setWorkDays] = useState<WorkDay[]>(INITIAL_WORK_DAYS);
-  const [energySlotStart, setEnergySlotStart] = useState('09:00');
-  const [energySlotEnd, setEnergySlotEnd] = useState('11:00');
+  const [workDays, setWorkDays] = useState<number[]>([1, 2, 3, 4, 5]);
+  const [workStartTime, setWorkStartTime] = useState('09:00');
+  const [workEndTime, setWorkEndTime] = useState('18:00');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  /* Load user preferences from backend settingsService */
+  //Load user preference
+  
   useEffect(() => {
     setLoading(true);
     settingsService.getPreferences()
       .then((prefs) => {
-        // Cập nhật workStart/workEnd
-        setEnergySlotStart(prefs.workStartTime ?? '09:00');
-        setEnergySlotEnd(prefs.workEndTime ?? '18:00');
-        
-        // Map workDays array [1,2,3...] sang WorkDay structure
-        const activeDays = prefs.workDays ?? [1, 2, 3, 4, 5];
-        setWorkDays((prev) =>
-          prev.map((d) => {
-            const enabled = activeDays.includes(d.dayIndex);
-            return {
-              ...d,
-              enabled,
-              slots: enabled ? d.slots : [],
-            };
-          })
-        );
+        setWorkStartTime(prefs.workStartTime ?? '09:00');
+        setWorkEndTime(prefs.workEndTime ?? '18:00');
+        setWorkDays(prefs.workDays ?? [1, 2, 3, 4, 5]);
       })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setLoading(false));
   }, []);
 
-  const toggleDay = (dayIndex: number) =>
-    setWorkDays((prev) => prev.map((d) =>
-      d.dayIndex === dayIndex ? { ...d, enabled: !d.enabled, slots: !d.enabled ? [{ start: '08:00', end: '12:00' }] : [] } : d
-    ));
-
-
-  const addSlot = (dayIndex: number) =>
-    setWorkDays((prev) => prev.map((d) =>
-      d.dayIndex === dayIndex ? { ...d, slots: [...d.slots, { start: '14:00', end: '18:00' }] } : d
-    ));
-
-  const removeSlot = (dayIndex: number, slotIndex: number) =>
-    setWorkDays((prev) => prev.map((d) =>
-      d.dayIndex === dayIndex ? { ...d, slots: d.slots.filter((_, i) => i !== slotIndex) } : d
-    ));
-
-  const updateSlot = (dayIndex: number, slotIndex: number, field: 'start' | 'end', value: string) =>
-    setWorkDays((prev) => prev.map((d) =>
-      d.dayIndex === dayIndex ? { ...d, slots: d.slots.map((s, i) => i === slotIndex ? { ...s, [field]: value } : s) } : d
-    ));
-
-  const copyMondayToAll = () => {
-    const mondaySlots = workDays.find((d) => d.dayIndex === 1)?.slots || [];
-    setWorkDays((prev) => prev.map((d) => (d.dayIndex > 0 && d.dayIndex < 7 ? { ...d, slots: [...mondaySlots] } : d)));
-    onToast(createToast('success', 'Đã sao chép khung giờ Thứ 2'));
+  const toggleDay = (dayIndex: number) => {
+    setWorkDays((prev) =>
+      prev.includes(dayIndex)
+        ? prev.filter((d) => d !== dayIndex)
+        : [...prev, dayIndex].sort((a, b) => a - b)
+    );
   };
 
   const handleSave = async () => {
     setSaving(true);
-    const enabledDays = workDays.filter(d => d.enabled).map(d => d.dayIndex);
     try {
       await settingsService.updatePreferences({
-        workStartTime: energySlotStart,
-        workEndTime: energySlotEnd,
-        workDays: enabledDays,
+        workStartTime,
+        workEndTime,
+        workDays,
       });
       onToast(createToast('success', 'Đã cập nhật khung giờ làm việc'));
     } catch {
@@ -562,85 +524,92 @@ function WorkHoursSection({ onToast }: { onToast: (toast: ToastMessage) => void 
 
   return (
     <Card>
-      <SectionHeader title="Khung giờ làm việc" subtitle="FocusFlow sẽ ưu tiên xếp lịch dựa trên khung giờ bạn thường làm việc hiệu quả nhất" />
-      <div className="px-6 pb-6">
-        <div className="space-y-3 mb-6">
-          {workDays.map((day) => (
-            <div
-              key={day.dayIndex}
-              className="flex items-start gap-4 p-4 rounded-xl transition-all"
-              style={{ background: day.enabled ? '#FFFFFF' : '#FAFDFA', border: '1px solid #E8F5E8', opacity: day.enabled ? 1 : 0.6 }}
-            >
-              <div className="flex items-center gap-3 min-w-[160px]">
-                <Toggle checked={day.enabled} onChange={() => toggleDay(day.dayIndex)} />
-                <span className="text-sm font-medium" style={{ color: '#243024' }}>{day.day}</span>
-              </div>
+      <SectionHeader
+        title="Khung giờ làm việc"
+        subtitle="FocusFlow sẽ ưu tiên xếp lịch dựa trên khung giờ và những ngày bạn làm việc hiệu quả nhất"
+      />
+      <div className="px-6 pb-6 space-y-8">
 
-              {day.enabled ? (
-                <div className="flex-1 space-y-2">
-                  {day.slots.map((slot, idx) => (
-                    <div key={idx} className="flex items-center gap-3">
-                      <TimePicker value={slot.start} onChange={(v) => updateSlot(day.dayIndex, idx, 'start', v)} />
-                      <span className="text-sm" style={{ color: '#9CA3AF' }}>—</span>
-                      <TimePicker value={slot.end} onChange={(v) => updateSlot(day.dayIndex, idx, 'end', v)} />
-                      {day.slots.length > 1 && (
-                        <button onClick={() => removeSlot(day.dayIndex, idx)} className="p-1.5 rounded-lg hover:bg-red-50 transition-colors">
-                          <Trash2 size={16} style={{ color: '#C1644C' }} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                  {day.slots.length < 3 && (
-                    <button onClick={() => addSlot(day.dayIndex)} className="flex items-center gap-1.5 text-sm font-medium" style={{ color: '#5FAF6E' }}>
-                      <Plus size={16} />Thêm khung giờ
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <span className="text-sm italic" style={{ color: '#9CA3AF' }}>Ngày nghỉ</span>
-              )}
+        {/* Khung giờ làm việc mặc định */}
+        <div className="p-5 rounded-2xl" style={{ background: '#F4FAF4', border: '1px solid #E8F5E8' }}>
+          <h3 className="text-sm font-semibold mb-1" style={{ color: '#243024' }}>Khung giờ làm việc mặc định</h3>
+          <p className="text-xs mb-4" style={{ color: '#5F6E5F' }}>Chọn khoảng thời gian bạn tập trung giải quyết công việc tốt nhất trong ngày.</p>
+
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium" style={{ color: '#5F6E5F' }}>Từ</span>
+              <TimePicker value={workStartTime} onChange={setWorkStartTime} />
             </div>
-          ))}
-        </div>
-
-        <button onClick={copyMondayToAll} className="flex items-center gap-2 text-sm font-medium mb-6" style={{ color: '#5F6E5F' }}>
-          <Copy size={16} />Sao chép khung giờ Thứ 2 cho tất cả các ngày
-        </button>
-
-        <div className="p-4 rounded-xl mb-6" style={{ background: '#F4FAF4', border: '1px solid #E8F5E8' }}>
-          <h4 className="text-sm font-semibold mb-2" style={{ color: '#243024' }}>Khung giờ năng lượng cao</h4>
-          <p className="text-xs mb-4" style={{ color: '#5F6E5F' }}>Đánh dấu khung giờ bạn cảm thấy tập trung tốt nhất trong ngày.</p>
-          <div className="flex items-center gap-4">
-            <span className="text-xs" style={{ color: '#9CA3AF' }}>Từ</span>
-            <TimePicker value={energySlotStart} onChange={setEnergySlotStart} />
-            <span className="text-xs" style={{ color: '#9CA3AF' }}>đến</span>
-            <TimePicker value={energySlotEnd} onChange={setEnergySlotEnd} />
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium" style={{ color: '#5F6E5F' }}>đến</span>
+              <TimePicker value={workEndTime} onChange={setWorkEndTime} />
+            </div>
           </div>
-          <div className="mt-4">
-            <div className="relative h-8 rounded-lg overflow-hidden" style={{ background: '#E8F5E8' }}>
+
+          <div className="mt-5">
+            <div className="relative h-8 rounded-xl overflow-hidden" style={{ background: '#E8F5E8' }}>
               {HOURS.map((hour, i) => {
                 const h = parseInt(hour);
-                const startH = parseInt(energySlotStart.split(':')[0]);
-                const endH = parseInt(energySlotEnd.split(':')[0]);
-                const isActive = h >= startH && h < endH;
+                const startH = parseInt(workStartTime.split(':')[0]);
+                const endH = parseInt(workEndTime.split(':')[0]);
+                const isActive = endH >= startH
+                  ? (h >= startH && h < endH)
+                  : (h >= startH || h < endH);
                 return (
-                  <div key={hour} className="absolute top-0 bottom-0"
-                    style={{ left: `${(i / 24) * 100}%`, width: `${100 / 24}%`, background: isActive ? '#5FAF6E' : 'transparent' }} />
+                  <div
+                    key={hour}
+                    className="absolute top-0 bottom-0 transition-all duration-300"
+                    style={{
+                      left: `${(i / 24) * 100}%`,
+                      width: `${100 / 24}%`,
+                      background: isActive ? '#5FAF6E' : 'transparent'
+                    }}
+                  />
                 );
               })}
             </div>
-            <div className="flex justify-between mt-1">
+            <div className="flex justify-between mt-1.5 px-1">
               <span className="text-xs" style={{ color: '#9CA3AF' }}>0h</span>
+              <span className="text-xs" style={{ color: '#9CA3AF' }}>12h</span>
               <span className="text-xs" style={{ color: '#9CA3AF' }}>24h</span>
             </div>
           </div>
         </div>
 
-        <div className="flex justify-end">
+        {/*Ngày làm việc trong tuần*/}
+        <div>
+          <h3 className="text-sm font-semibold mb-1" style={{ color: '#243024' }}>Ngày làm việc trong tuần (Working Days)</h3>
+          <p className="text-xs mb-4" style={{ color: '#5F6E5F' }}>Chọn các ngày bạn hoạt động làm việc. Các ngày tắt sẽ được coi là ngày nghỉ.</p>
+
+          <div className="flex items-center gap-3.5 flex-wrap">
+            {DAY_BUTTONS.map((day) => {
+              const isEnabled = workDays.includes(day.index);
+              return (
+                <button
+                  key={day.index}
+                  onClick={() => toggleDay(day.index)}
+                  className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-sm transition-all duration-200 active:scale-95 shadow-sm"
+                  style={{
+                    background: isEnabled ? '#5FAF6E' : '#FFFFFF',
+                    color: isEnabled ? '#FFFFFF' : '#9CA3AF',
+                    border: isEnabled ? '1px solid #5FAF6E' : '1px solid #E8F5E8',
+                  }}
+                  title={isEnabled ? `Đang bật: ${day.label}` : `Đang tắt: ${day.label}`}
+                >
+                  {day.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Nút Lưu */}
+        <div className="flex justify-end pt-4" style={{ borderTop: '1px solid #E8F5E8' }}>
           <Button onClick={handleSave} disabled={saving}>
             {saving ? 'Đang lưu...' : 'Lưu cấu hình khung giờ'}
           </Button>
         </div>
+
       </div>
     </Card>
   );
@@ -648,10 +617,6 @@ function WorkHoursSection({ onToast }: { onToast: (toast: ToastMessage) => void 
 
 
 function PomodoroSection({ onToast }: { onToast: (toast: ToastMessage) => void }) {
-  const [focusDuration, setFocusDuration] = useState(25);
-  const [shortBreak, setShortBreak] = useState(5);
-  const [longBreak, setLongBreak] = useState(15);
-  const [sessionsBeforeLongBreak, setSessionsBeforeLongBreak] = useState(4);
   const [autoStart, setAutoStart] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const handleSave = () => onToast(createToast('success', 'Đã lưu cấu hình Pomodoro'));
@@ -660,25 +625,6 @@ function PomodoroSection({ onToast }: { onToast: (toast: ToastMessage) => void }
     <Card>
       <SectionHeader title="Cấu hình Pomodoro" />
       <div className="px-6 pb-6">
-        <div className="grid grid-cols-2 gap-4 mb-6">
-          <div>
-            <label className="block text-sm font-medium mb-2" style={{ color: '#243024' }}>Thời lượng tập trung (phút)</label>
-            <Input type="number" value={focusDuration.toString()} onChange={(v) => setFocusDuration(parseInt(v) || 25)} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2" style={{ color: '#243024' }}>Thời lượng nghỉ ngắn (phút)</label>
-            <Input type="number" value={shortBreak.toString()} onChange={(v) => setShortBreak(parseInt(v) || 5)} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2" style={{ color: '#243024' }}>Thời lượng nghỉ dài (phút)</label>
-            <Input type="number" value={longBreak.toString()} onChange={(v) => setLongBreak(parseInt(v) || 15)} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2" style={{ color: '#243024' }}>Số phiên trước khi nghỉ dài</label>
-            <Input type="number" value={sessionsBeforeLongBreak.toString()} onChange={(v) => setSessionsBeforeLongBreak(parseInt(v) || 4)} />
-          </div>
-        </div>
-
         <div className="space-y-4 mb-6">
           {[
             { label: 'Tự động chuyển sang phiên tiếp theo', desc: 'Bắt đầu phiên mới ngay sau khi kết thúc', val: autoStart, set: setAutoStart },
@@ -767,6 +713,13 @@ function TimezoneLanguageSection({ onToast }: { onToast: (toast: ToastMessage) =
 
 function DangerZoneSection({ onToast }: { onToast: (toast: ToastMessage) => void }) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [userEmail, setUserEmail] = useState('');
+
+  useEffect(() => {
+    accountService.getProfile()
+      .then((profile) => setUserEmail(profile.email ?? ''))
+      .catch(() => { });
+  }, []);
 
   const handleDelete = () => {
     setShowDeleteModal(false);
@@ -798,7 +751,7 @@ function DangerZoneSection({ onToast }: { onToast: (toast: ToastMessage) => void
         open={showDeleteModal}
         onClose={() => setShowDeleteModal(false)}
         onConfirm={handleDelete}
-        userEmail="nguyenvana@email.com"
+        userEmail={userEmail}
       />
     </>
   );
@@ -813,25 +766,30 @@ export default function SettingsPage({ onToast }: SettingsPageProps) {
   const [activeSection, setActiveSection] = useState<Section>('account');
 
   return (
-    <div className="flex flex-col min-h-full px-6 lg:px-10 py-8">
-      <header className="mb-8">
+    <div className="flex flex-col min-h-full">
+      <header
+        className="sticky top-0 z-30 py-4 px-6 lg:px-10 mb-8"
+        style={{ background: 'rgba(244, 250, 244, 0.95)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid #E8F5E8' }}
+      >
         <h1 className="text-2xl font-bold" style={{ color: '#243024' }}>Cài đặt</h1>
         <p className="text-sm mt-1" style={{ color: '#5F6E5F' }}>Quản lý tài khoản và tùy chỉnh trải nghiệm FocusFlow</p>
       </header>
 
-      <div className="flex gap-8">
-        <aside className="hidden lg:block" style={{ width: 240 }}>
-          <SettingsNav active={activeSection} onSelect={setActiveSection} />
-        </aside>
+      <div className="px-6 lg:px-10 pb-8">
+        <div className="flex gap-8">
+          <aside className="hidden lg:block" style={{ width: 240 }}>
+            <SettingsNav active={activeSection} onSelect={setActiveSection} />
+          </aside>
 
-        <main className="flex-1 max-w-3xl">
-          {activeSection === 'account' && <AccountSection onToast={onToast} />}
-          {activeSection === 'work-hours' && <WorkHoursSection onToast={onToast} />}
-          {activeSection === 'pomodoro' && <PomodoroSection onToast={onToast} />}
-          {activeSection === 'notifications' && <NotificationsSection onToast={onToast} />}
-          {activeSection === 'timezone' && <TimezoneLanguageSection onToast={onToast} />}
-          {activeSection === 'danger' && <DangerZoneSection onToast={onToast} />}
-        </main>
+          <main className="flex-1 max-w-3xl">
+            {activeSection === 'account' && <AccountSection onToast={onToast} />}
+            {activeSection === 'work-hours' && <WorkHoursSection onToast={onToast} />}
+            {activeSection === 'pomodoro' && <PomodoroSection onToast={onToast} />}
+            {activeSection === 'notifications' && <NotificationsSection onToast={onToast} />}
+            {activeSection === 'timezone' && <TimezoneLanguageSection onToast={onToast} />}
+            {activeSection === 'danger' && <DangerZoneSection onToast={onToast} />}
+          </main>
+        </div>
       </div>
     </div>
   );

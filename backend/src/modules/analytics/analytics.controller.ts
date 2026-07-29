@@ -2,7 +2,7 @@ import {
     Controller,
     Get,
     Query,
-    UseGuards,
+    UseGuards, Body, Post
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -14,7 +14,7 @@ import { AnalyticsService } from './analytics.service';
 @UseGuards(JwtAuthGuard)
 @Controller('analytics')
 export class AnalyticsController {
-    constructor(private readonly analyticsService: AnalyticsService) {}
+    constructor(private readonly analyticsService: AnalyticsService) { }
 
     @Get('procrastination-score')
     @ApiOperation({ summary: 'Lấy Procrastination Score theo ngày (tự tính nếu chưa có)' })
@@ -25,6 +25,12 @@ export class AnalyticsController {
     ) {
         const target = date ?? new Date().toISOString().split('T')[0];
         return this.analyticsService.getProcrastinationScore(userId, target);
+    }
+
+    @Get('overdue-summary')
+    @ApiOperation({ summary: 'Tổng hợp slot trễ, task quá hạn và dữ liệu 14 ngày gần nhất' })
+    getOverdueSummary(@CurrentUser('id') userId: string) {
+        return this.analyticsService.getOverdueSummary(userId);
     }
 
     @Get('completion-rate')
@@ -48,4 +54,5 @@ export class AnalyticsController {
     getHeatmap(@CurrentUser('id') userId: string) {
         return this.analyticsService.getHeatmap(userId);
     }
+
 }
