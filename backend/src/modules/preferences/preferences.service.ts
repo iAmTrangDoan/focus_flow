@@ -1,10 +1,11 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdatePreferencesDto } from './dto/update-preferences.dto';
+import { parseWorkWindow } from '../../common/utils/work-window.util';
 
 @Injectable()
 export class PreferencesService {
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(private readonly prisma: PrismaService) { }
 
     /**
      * Lấy preferences của user. Nếu chưa có row → tạo mặc định.
@@ -39,12 +40,10 @@ export class PreferencesService {
             ? this.toHHMM(dto.workEndTime) ?? existing.workEndTime
             : undefined;
 
-        // Validate start < end nếu cả hai được cung cấp hoặc thay đổi 1 phía
+        // Validate start & end bằng helper mới
         const effectiveStart = startHHMM ?? existing.workStartTime;
         const effectiveEnd = endHHMM ?? existing.workEndTime;
-        if (effectiveStart >= effectiveEnd) {
-            throw new BadRequestException('Giờ bắt đầu phải trước giờ kết thúc');
-        }
+        parseWorkWindow(effectiveStart, effectiveEnd);
 
         return this.prisma.userPreference.update({
             where: { userId },
@@ -52,7 +51,6 @@ export class PreferencesService {
                 ...(startHHMM && { workStartTime: startHHMM }),
                 ...(endHHMM && { workEndTime: endHHMM }),
                 ...(dto.workDays && { workDays: dto.workDays }),
-                ...(dto.mainGoal && { mainGoal: dto.mainGoal }),
             },
         });
     }

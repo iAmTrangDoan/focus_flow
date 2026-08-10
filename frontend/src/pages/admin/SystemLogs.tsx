@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Search, RefreshCw, Info, ScrollText } from 'lucide-react';
+import { Search, RefreshCw,  ScrollText } from 'lucide-react';
 import { Badge, SkeletonLoader } from '../../components/ui';
 
 export interface SystemLogItem {
@@ -82,16 +82,6 @@ export function SystemLogsPage() {
         </button>
       </div>
 
-      {/* Backend API Note Banner */}
-      <div className="flex items-start gap-3 rounded-2xl bg-amber-50 border border-amber-200 p-4 text-xs text-amber-900">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-        <div>
-          <p className="font-bold">Ghi chú nhật ký:</p>
-          <p className="mt-0.5">
-            Dữ liệu nhật ký hiện tại được thu thập trực tiếp từ NestJS Logger và Gemini Service API.
-          </p>
-        </div>
-      </div>
 
       {/* Filters & Search */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

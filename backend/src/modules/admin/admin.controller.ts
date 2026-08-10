@@ -72,4 +72,7 @@ export class AdminController {
     ) {
         return this.adminService.updateConfigs(dto.configs, adminId);
     }
+
+
+
 }

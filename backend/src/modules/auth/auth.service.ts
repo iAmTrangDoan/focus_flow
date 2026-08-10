@@ -11,6 +11,7 @@ import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { parseWorkWindow } from '../../common/utils/work-window.util';
 
 @Injectable()
 export class AuthService {
@@ -47,9 +48,7 @@ export class AuthService {
         const startHHMM = this.toHHMM(dto.workStartTime) ?? '09:00';
         const endHHMM = this.toHHMM(dto.workEndTime) ?? '18:00';
 
-        if (startHHMM >= endHHMM) {
-            throw new BadRequestException('Giờ bắt đầu phải trước giờ kết thúc');
-        }
+        parseWorkWindow(startHHMM, endHHMM);
 
         await this.prisma.userPreference.create({
             data: {

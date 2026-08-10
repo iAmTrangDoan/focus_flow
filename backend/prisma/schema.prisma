@@ -102,6 +102,7 @@ model ScheduleSlot {
   isCompleted         Boolean             @default(false) @map("is_completed")
   status              SlotStatus          @default(SCHEDULED)
   restructureStrategy RestructureStrategy @default(NONE) @map("restructure_strategy")
+  logicalDate         DateTime            @db.Date @map("logical_date")
   createdAt           DateTime            @default(now()) @map("created_at")
   updatedAt           DateTime            @updatedAt @map("updated_at")
   task                Task                @relation(fields: [taskId], references: [id], onDelete: Cascade)
@@ -113,6 +114,7 @@ model ScheduleSlot {
   @@index([taskId])
   @@index([subtaskId])
   @@index([startAt])
+  @@index([userId, logicalDate])
   @@map("schedule_slots")
 }
 
@@ -176,7 +178,9 @@ enum TaskStatus {
 }
 
 enum Importance {
+  CRITICAL
   HIGH
+  MEDIUM
   LOW
 }
 

@@ -1,6 +1,4 @@
 import { useState, useMemo } from 'react';
-import { useTimeRange } from '../hooks/useTimeRange';
-import { ALL_TIME_SLOTS } from '../utils/timeSlots';
 import { useNavigate, Link } from 'react-router-dom';
 import {
   Leaf,
@@ -10,9 +8,6 @@ import {
   Eye,
   EyeOff,
   Check,
-  BookOpen,
-  Briefcase,
-  Heart,
 } from 'lucide-react';
 import authService from '../services/auth.service';
 import useAuthStore from '../store/authStore';
@@ -26,12 +21,6 @@ const benefits = [
 ];
 
 const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-const goals = [
-  { icon: BookOpen, label: 'Study & Learning' },
-  { icon: Briefcase, label: 'Work & Career' },
-  { icon: Heart, label: 'Personal Growth' },
-];
 
 function passwordStrength(pw: string): { level: number; label: string } {
   if (!pw) return { level: 0, label: '' };
@@ -60,7 +49,8 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [serverError, setServerError] = useState('');
 
-  const { startTime, setStartTime, endTime, setEndTime, availableEndTimes } = useTimeRange();
+  const [startTime, setStartTime] = useState('09:00');
+  const [endTime, setEndTime] = useState('18:00');
   const [selectedDays, setSelectedDays] = useState<string[]>([
     'Mon',
     'Tue',
@@ -68,7 +58,6 @@ export default function RegisterPage() {
     'Thu',
     'Fri',
   ]);
-  const [selectedGoal, setSelectedGoal] = useState<string | null>(null);
 
   const pwStrength = useMemo(() => passwordStrength(password), [password]);
   const pwMatch = confirm && password === confirm;
@@ -85,6 +74,36 @@ export default function RegisterPage() {
   const handleRegister = async () => {
     setLoading(true);
     setServerError('');
+
+    const toMinutes = (hhmm: string): number => {
+      if (!hhmm) return 0;
+      const [h, m] = hhmm.split(':').map(Number);
+      return (h || 0) * 60 + (m || 0);
+    };
+
+    const startMin = toMinutes(startTime);
+    const endMin = toMinutes(endTime);
+
+    if (startMin === endMin) {
+      setServerError('Giờ bắt đầu và kết thúc không được giống nhau');
+      setLoading(false);
+      return;
+    }
+
+    const isOvernight = endMin < startMin;
+    const duration = isOvernight ? (24 * 60 - startMin + endMin) : (endMin - startMin);
+
+    if (duration < 30) {
+      setServerError('Khung giờ làm việc tối thiểu là 30 phút');
+      setLoading(false);
+      return;
+    }
+    if (duration > 720) {
+      setServerError('Khung giờ làm việc tối đa là 12 tiếng');
+      setLoading(false);
+      return;
+    }
+
     try {
       const DAY_MAP: Record<string, number> = {
         Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7,
@@ -97,7 +116,6 @@ export default function RegisterPage() {
         workStartTime: startTime,
         workEndTime: endTime,
         workDays: selectedDays.map((d) => DAY_MAP[d]),
-        mainGoal: selectedGoal ?? undefined,
       });
       authService.saveSession(response);
       setUser(response.user);
@@ -290,9 +308,8 @@ export default function RegisterPage() {
 
             {/* STEP 1 */}
             <div
-              className={`mt-6 flex flex-col gap-5 transition-all duration-500 ${
-                step === 1 ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-4 pointer-events-none hidden'
-              }`}
+              className={`mt-6 flex flex-col gap-5 transition-all duration-500 ${step === 1 ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-4 pointer-events-none hidden'
+                }`}
             >
               {/* Name */}
               <div>
@@ -543,9 +560,8 @@ export default function RegisterPage() {
 
             {/* STEP 2 */}
             <div
-              className={`mt-6 flex flex-col gap-6 transition-all duration-500 ${
-                step === 2 ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-4 pointer-events-none hidden'
-              }`}
+              className={`mt-6 flex flex-col gap-6 transition-all duration-500 ${step === 2 ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-4 pointer-events-none hidden'
+                }`}
             >
               {/* Work hours */}
               <div>
@@ -557,10 +573,11 @@ export default function RegisterPage() {
                     <label className="block text-xs mb-1" style={{ color: '#5F6E5F' }}>
                       Start time
                     </label>
-                    <select
+                    <input
+                      type="time"
                       value={startTime}
                       onChange={(e) => setStartTime(e.target.value)}
-                      className="w-full rounded-xl border py-2.5 px-3 text-sm outline-none transition-all duration-150"
+                      className="w-full rounded-xl border py-2 px-3 text-sm outline-none transition-all duration-150"
                       style={{ borderColor: '#D1D5DB', color: '#243024' }}
                       onFocus={(e) => {
                         e.currentTarget.style.borderColor = '#5FAF6E';
@@ -570,22 +587,17 @@ export default function RegisterPage() {
                         e.currentTarget.style.borderColor = '#D1D5DB';
                         e.currentTarget.style.boxShadow = 'none';
                       }}
-                    >
-                      {ALL_TIME_SLOTS.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </div>
                   <div className="flex-1">
                     <label className="block text-xs mb-1" style={{ color: '#5F6E5F' }}>
                       End time
                     </label>
-                    <select
+                    <input
+                      type="time"
                       value={endTime}
                       onChange={(e) => setEndTime(e.target.value)}
-                      className="w-full rounded-xl border py-2.5 px-3 text-sm outline-none transition-all duration-150"
+                      className="w-full rounded-xl border py-2 px-3 text-sm outline-none transition-all duration-150"
                       style={{ borderColor: '#D1D5DB', color: '#243024' }}
                       onFocus={(e) => {
                         e.currentTarget.style.borderColor = '#5FAF6E';
@@ -595,13 +607,7 @@ export default function RegisterPage() {
                         e.currentTarget.style.borderColor = '#D1D5DB';
                         e.currentTarget.style.boxShadow = 'none';
                       }}
-                    >
-                      {availableEndTimes.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </div>
                 </div>
               </div>
@@ -633,51 +639,6 @@ export default function RegisterPage() {
                 </div>
               </div>
 
-              {/* Goal */}
-              <div>
-                <p className="text-sm font-medium mb-3" style={{ color: '#243024' }}>
-                  What's your main goal?
-                </p>
-                <div className="grid grid-cols-1 gap-3">
-                  {goals.map((g) => {
-                    const active = selectedGoal === g.label;
-                    const Icon = g.icon;
-                    return (
-                      <button
-                        key={g.label}
-                        type="button"
-                        onClick={() => setSelectedGoal(g.label)}
-                        className="flex items-center gap-3 p-4 rounded-xl border text-left transition-all duration-150"
-                        style={{
-                          borderColor: active ? '#5FAF6E' : '#E5E7EB',
-                          background: active ? '#F0FBF0' : '#FFFFFF',
-                        }}
-                      >
-                        <div
-                          className="flex items-center justify-center rounded-lg"
-                          style={{
-                            width: 36,
-                            height: 36,
-                            background: active ? '#5FAF6E' : '#DDF3DF',
-                          }}
-                        >
-                          <Icon
-                            size={18}
-                            style={{ color: active ? '#fff' : '#5FAF6E' }}
-                            strokeWidth={2}
-                          />
-                        </div>
-                        <span
-                          className="text-sm font-medium"
-                          style={{ color: '#243024' }}
-                        >
-                          {g.label}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
 
               <button
                 type="button"

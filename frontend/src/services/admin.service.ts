@@ -1,3 +1,4 @@
+import type { SystemLogItem } from '../pages/admin/SystemLogs';
 import api from './api';
 
 export interface AdminDashboardData {
@@ -90,6 +91,12 @@ const adminService = {
   /** Cập nhật mảng cấu hình hệ thống */
   async updateConfigs(configs: { key: string; value: string }[]): Promise<SystemConfigItem[]> {
     const { data } = await api.patch<SystemConfigItem[]>('/admin/configs', { configs });
+    return data;
+  },
+
+  //Nhật ký hệ thống: Dữ liệu nhật ký hiện tại được thu thập trực tiếp từ NestJS Logger và Gemini Service API
+  async getLogs(): Promise<SystemLogItem[]> {
+    const { data } = await api.get<SystemLogItem[]>('/admin/logs');
     return data;
   },
 };

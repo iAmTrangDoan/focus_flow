@@ -426,7 +426,12 @@ export class AccountService {
             },
         ];
 
-        await this.prisma.scheduleSlot.createMany({ data: slotData });
+        const slotDataWithLogicalDate = slotData.map(slot => ({
+            ...slot,
+            logicalDate: new Date(new Date(slot.startAt).setUTCHours(0, 0, 0, 0)),
+        }));
+
+        await this.prisma.scheduleSlot.createMany({ data: slotDataWithLogicalDate });
 
         // 4. Seed Pomodoro Sessions
         const pomodoroData = [

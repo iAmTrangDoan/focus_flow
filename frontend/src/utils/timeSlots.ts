@@ -4,7 +4,7 @@
  */
 export function generateTimeSlots(): string[] {
   const slots: string[] = [];
-  for (let totalMinutes = 0; totalMinutes < 24 * 60; totalMinutes += 30) {
+  for (let totalMinutes = 0; totalMinutes < 24 * 60; totalMinutes += 1) {
     const hour24 = Math.floor(totalMinutes / 60);
     const minute = totalMinutes % 60;
     const period = hour24 < 12 ? 'AM' : 'PM';

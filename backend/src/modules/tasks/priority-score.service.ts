@@ -1,28 +1,27 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Importance, Task } from '@prisma/client';
+import { DateTime } from 'luxon';
+import { parseHHMM } from '../../common/utils/work-window.util';
 
 /**
  * Tính Priority Score cho task theo công thức:
  * PS = w1*Urgency + w2*Importance + w3*DeadlinePressure + w4*EnergyFit + w5*ProcrastinationRisk
- *
- * Mỗi thành phần chuẩn hóa [0, 10], trọng số tổng = 1 → PS ∈ [0, 10]
  */
+
+
 @Injectable()
 export class PriorityScoreService {
-    // Trọng số mặc định
+
     private w1 = 0.25; // Urgency
     private w2 = 0.25; // Importance
     private w3 = 0.20; // DeadlinePressure
     private w4 = 0.15; // EnergyFit
     private w5 = 0.15; // ProcrastinationRisk
-    private dMax = 14; // Ngưỡng ngày cho Urgency
+    private dMax = 14; 
 
     constructor(private readonly prisma: PrismaService) {}
 
-    /**
-     * Load trọng số từ system_configs (nếu có), fallback về mặc định.
-     */
     async loadWeights(): Promise<void> {
         const configs = await this.prisma.systemConfig.findMany({
             where: {
@@ -148,12 +147,19 @@ export class PriorityScoreService {
      * (cập nhật bởi Cron Job cuối ngày trong behavior module)
      */
     private async calcEnergyFit(userId: string): Promise<number> {
-        const currentHour = new Date().getHours();
+        // Load user and preferences
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { timezone: true },
+        });
+        const timezone = user?.timezone || 'Asia/Ho_Chi_Minh';
+        const nowLocal = DateTime.now().setZone(timezone);
+        const currentHour = nowLocal.hour;
+        const currentMinutes = currentHour * 60 + nowLocal.minute;
 
-        // Load user preferences
         const prefs = await this.prisma.userPreference.findUnique({ where: { userId } });
-        const [startH] = (prefs?.workStartTime ?? '09:00').split(':').map(Number);
-        const [endH] = (prefs?.workEndTime ?? '18:00').split(':').map(Number);
+        const startMinutes = parseHHMM(prefs?.workStartTime ?? '09:00');
+        const endMinutes = parseHHMM(prefs?.workEndTime ?? '18:00');
 
         // Check behavior profile cho personal heatmap
         const profile = await this.prisma.behaviorProfile.findUnique({ where: { userId } });
@@ -171,23 +177,25 @@ export class PriorityScoreService {
         }
 
         // Window factor: trong giờ làm = 1.0, ngoài = 0.5
-        const inWorkWindow = currentHour >= startH && currentHour < endH;
+        const isOvernight = endMinutes < startMinutes;
+        const inWorkWindow = isOvernight
+            ? (currentMinutes >= startMinutes || currentMinutes < endMinutes)
+            : (currentMinutes >= startMinutes && currentMinutes < endMinutes);
         const windowFactor = inWorkWindow ? 1.0 : 0.5;
 
         return Math.min(10, Math.round(score * windowFactor * 100) / 100);
     }
 
     /**
-     * Generic energy curve dựa trên circadian rhythm.
      * Dùng cho user mới chưa có đủ data (≥10 phiên Pomodoro, ≥3 ngày).
      */
     private genericEnergyCurve(hour: number): number {
-        if (hour >= 9 && hour <= 11) return 9;    // Peak morning
-        if (hour >= 14 && hour <= 16) return 7;   // Afternoon recovery
-        if (hour >= 7 && hour <= 8) return 7;     // Early morning warmup
-        if (hour >= 12 && hour <= 13) return 5;   // Post-lunch dip
-        if (hour >= 17 && hour <= 19) return 6;   // Late afternoon
-        if (hour >= 20 && hour <= 22) return 4;   // Evening wind-down
-        return 3;                                  // Night / early dawn
+        if (hour >= 9 && hour <= 11) return 9;   
+        if (hour >= 14 && hour <= 16) return 7;  
+        if (hour >= 7 && hour <= 8) return 7;    
+        if (hour >= 12 && hour <= 13) return 5;  
+        if (hour >= 17 && hour <= 19) return 6;  
+        if (hour >= 20 && hour <= 22) return 4;  
+        return 3;                                 
     }
 }

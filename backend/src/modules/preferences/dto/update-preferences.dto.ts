@@ -34,8 +34,4 @@ export class UpdatePreferencesDto {
     @Max(7, { each: true, message: 'Giá trị ngày phải từ 1 đến 7' })
     workDays?: number[];
 
-    @ApiPropertyOptional({ example: 'study', description: 'Mục tiêu chính' })
-    @IsOptional()
-    @IsString()
-    mainGoal?: string;
 }

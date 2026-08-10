@@ -13,6 +13,8 @@ import { CreateSubtaskDto } from './dto/create-subtask.dto';
 import { UpdateSubtaskDto } from './dto/update-subtask.dto';
 import { TaskStatus } from '@prisma/client';
 
+import { parseWorkWindow, resolveLogicalDate } from '../../common/utils/work-window.util';
+
 @Injectable()
 export class TasksService {
     constructor(
@@ -84,6 +86,17 @@ export class TasksService {
 
         // If fixed task with defined times, create a manual schedule slot
         if (task.isFixedTask && task.fixedStart && task.fixedEnd) {
+            const user = await this.prisma.user.findUnique({
+                where: { id: userId },
+                include: { preference: true },
+            });
+            const tz = user?.timezone || 'Asia/Ho_Chi_Minh';
+            const workWindow = parseWorkWindow(
+                user?.preference?.workStartTime || '09:00',
+                user?.preference?.workEndTime || '18:00',
+            );
+            const logicalDate = resolveLogicalDate(task.fixedStart, tz, workWindow);
+
             await this.prisma.scheduleSlot.create({
                 data: {
                     userId,
@@ -91,6 +104,7 @@ export class TasksService {
                     startAt: task.fixedStart,
                     endAt: task.fixedEnd,
                     isManual: true,
+                    logicalDate,
                 },
             });
         }
@@ -386,12 +400,24 @@ export class TasksService {
                         },
                     });
 
+                const user = await tx.user.findUnique({
+                    where: { id: userId },
+                    include: { preference: true },
+                });
+                const tz = user?.timezone || 'Asia/Ho_Chi_Minh';
+                const workWindow = parseWorkWindow(
+                    user?.preference?.workStartTime || '09:00',
+                    user?.preference?.workEndTime || '18:00',
+                );
+                const logicalDate = resolveLogicalDate(finalStart, tz, workWindow);
+
                 if (existingSlot) {
                     await tx.scheduleSlot.update({
                         where: { id: existingSlot.id },
                         data: {
                             startAt: finalStart,
                             endAt: finalEnd,
+                            logicalDate,
                         },
                     });
                 } else {
@@ -402,6 +428,7 @@ export class TasksService {
                             startAt: finalStart,
                             endAt: finalEnd,
                             isManual: true,
+                            logicalDate,
                         },
                     });
                 }

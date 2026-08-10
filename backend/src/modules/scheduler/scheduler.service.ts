@@ -22,6 +22,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { PriorityScoreService } from '../tasks/priority-score.service';
 import { NotificationGateway } from '../notification/notification.gateway';
+import { parseWorkWindow, resolveLogicalDate, parseHHMM, WorkWindow } from '../../common/utils/work-window.util';
 
 type SchedulableTask = Prisma.TaskGetPayload<{
     include: { subtasks: true };
@@ -52,6 +53,7 @@ interface PlannedSlot {
     subtaskId: string | null;
     startAt: Date;
     endAt: Date;
+    logicalDate: Date;
     isManual: boolean;
     status: SlotStatus;
     restructureStrategy: RestructureStrategy;
@@ -133,8 +135,46 @@ export class SchedulerService {
                 
             const planningStart = this.roundUpToFiveMinutes(now > weekStart ? now : weekStart);
 
-            const [prefs, tasks, preservedSlots] = await Promise.all([
-                this.prisma.userPreference.findUnique({ where: { userId } }),
+            // 1. Get user preferences first
+            const prefs = await this.prisma.userPreference.findUnique({ where: { userId } });
+            
+            // 2. Parse work window
+            const workWindow = parseWorkWindow(
+                prefs?.workStartTime ?? '09:00',
+                prefs?.workEndTime ?? '18:00',
+            );
+            const workDays = prefs?.workDays ?? [1, 2, 3, 4, 5];
+
+            // 3. Build raw segments (run in user timezone)
+            const rawSegments = this.buildRawFreeSegments(
+                weekStartLocal,
+                weekEndLocal,
+                planningStart,
+                { hour: Math.floor(workWindow.startMinutes / 60), minute: workWindow.startMinutes % 60 },
+                { hour: Math.floor(workWindow.endMinutes / 60), minute: workWindow.endMinutes % 60 },
+                workDays,
+                workWindow.isOvernight,
+                timezone,
+            );
+
+            // 4. Compute actual query bounds from raw segments (for overnight shifts)
+            let planningStartQuery = planningStart;
+            let planningEndQuery = weekEnd;
+            if (rawSegments.length > 0) {
+                const minStart = rawSegments.reduce(
+                    (min, seg) => seg.start < min ? seg.start : min,
+                    rawSegments[0].start,
+                );
+                const maxEnd = rawSegments.reduce(
+                    (max, seg) => seg.end > max ? seg.end : max,
+                    rawSegments[0].end,
+                );
+                planningStartQuery = minStart < planningStart ? minStart : planningStart;
+                planningEndQuery = maxEnd > weekEnd ? maxEnd : weekEnd;
+            }
+
+            // 5. Query tasks & preserved slots
+            const [tasks, preservedSlots] = await Promise.all([
                 this.prisma.task.findMany({
                     where: {
                         userId,
@@ -147,7 +187,8 @@ export class SchedulerService {
                 this.prisma.scheduleSlot.findMany({
                     where: {
                         userId,
-                        startAt: { gte: weekStart, lt: weekEnd },
+                        startAt: { lt: planningEndQuery },
+                        endAt: { gt: planningStartQuery },
                         OR: [
                             { isManual: true },
                             { isCompleted: true },
@@ -157,271 +198,265 @@ export class SchedulerService {
                     },
                     orderBy: { startAt: 'asc' },
                 }),
-        ]);
+            ]);
 
-        if (tasks.length === 0) {
-            const existingSlots = await this.getSlotsInRange(userId, weekStart, weekEnd);
-            return {
-                message: 'Không có task cần lập lịch',
-                timezone,
-                weekStart,
-                weekEnd,
-                energyFit: {
-                    source: 'COLD_START' as EnergyFitSource,
-                    totalSessions: 0,
-                },
-                summary: {
-                    fixedTasksPinned: 0,
-                    flexibleTasksScheduled: 0,
-                    newSlotsCreated: 0,
-                    overdueTaskCount: 0,
-                    overflowTaskCount: 0,
-                },
-                slots: this.formatSlots(existingSlots),
-                overdueTasks: [],
-                overflow: [],
-                warnings: [],
-            };
-        }
-
-        // Tính lại priority scores cho tất cả tasks trước khi chạy lập lịch
-        await this.refreshPriorityScores(tasks);
-
-        const overdueTasks = tasks.filter(
-            (task) => task.deadline && task.deadline < now,
-        );
-        const warnings: ScheduleWarning[] = overdueTasks.map((task) => ({
-            code: 'TASK_OVERDUE',
-            taskId: task.id,
-            taskTitle: task.title,
-            message: `Task đã quá deadline ${task.deadline!.toISOString()} và được ưu tiên khi lập lịch.`,
-        }));
-        const overflow: ScheduleOverflow[] = [];
-
-        const fixedTasks = tasks
-            .filter((task) => task.isFixedTask)
-            .sort(
-                (a, b) =>
-                    (a.fixedStart?.getTime() ?? Number.MAX_SAFE_INTEGER) -
-                    (b.fixedStart?.getTime() ?? Number.MAX_SAFE_INTEGER),
-            );
-
-        const flexibleTasks = tasks
-            .filter((task) => !task.isFixedTask)
-            .sort((a, b) => this.compareFlexibleTasks(a, b, now));
-
-        const plannedSlots: PlannedSlot[] = [];
-        const blockedIntervals = preservedSlots.map((slot) => ({
-            startAt: slot.startAt,
-            endAt: slot.endAt,
-        }));
-        const preservedSlotsByTask = new Map<string, typeof preservedSlots>();
-        for (const slot of preservedSlots) {
-            const list = preservedSlotsByTask.get(slot.taskId) ?? [];
-            list.push(slot);
-            preservedSlotsByTask.set(slot.taskId, list);
-        }
-
-        // Chỉ các slot đã hoàn thành hoặc slot tương lai được giữ lại mới được
-        // trừ khỏi thời lượng cần xếp. Slot quá giờ chưa chạy chỉ là lịch sử,
-        // tuyệt đối không được coi là thời lượng công việc đã thực hiện.
-        const creditablePreservedSlotsByTask = new Map<string, typeof preservedSlots>();
-        for (const slot of preservedSlots) {
-            const isCreditable =
-                slot.isCompleted ||
-                (slot.startAt >= planningStart && slot.status !== SlotStatus.FROZEN_OVERDUE);
-            if (!isCreditable) continue;
-
-            const list = creditablePreservedSlotsByTask.get(slot.taskId) ?? [];
-            list.push(slot);
-            creditablePreservedSlotsByTask.set(slot.taskId, list);
-        }
-
-        const fixedTasksAlreadyPreserved = new Set(
-            fixedTasks
-                .filter(
-                    (task) =>
-                        task.fixedStart &&
-                        task.fixedEnd &&
-                        (preservedSlotsByTask.get(task.id) ?? []).some(
-                            (slot) =>
-                                slot.startAt < task.fixedEnd! &&
-                                slot.endAt > task.fixedStart!,
-                        ),
-                )
-                .map((task) => task.id),
-        );
-
-        // 1. Ghim fixed tasks trước
-        for (const task of fixedTasks) {
-            if (fixedTasksAlreadyPreserved.has(task.id)) continue;
-            const fixedResult = this.planFixedTask(
-                task,
-                userId,
-                planningStart,
-                weekStart,
-                weekEnd,
-                blockedIntervals,
-            );
-
-            warnings.push(...fixedResult.warnings);
-
-            if (fixedResult.slot) {
-                plannedSlots.push(fixedResult.slot);
-                blockedIntervals.push({
-                    startAt: fixedResult.slot.startAt,
-                    endAt: fixedResult.slot.endAt,
-                });
+            if (tasks.length === 0) {
+                const existingSlots = await this.getSlotsInRange(userId, weekStart, weekEnd);
+                return {
+                    message: 'Không có task cần lập lịch',
+                    timezone,
+                    weekStart,
+                    weekEnd,
+                    energyFit: {
+                        source: 'COLD_START' as EnergyFitSource,
+                        totalSessions: 0,
+                    },
+                    summary: {
+                        fixedTasksPinned: 0,
+                        flexibleTasksScheduled: 0,
+                        newSlotsCreated: 0,
+                        overdueTaskCount: 0,
+                        overflowTaskCount: 0,
+                    },
+                    slots: this.formatSlots(existingSlots),
+                    overdueTasks: [],
+                    overflow: [],
+                    warnings: [],
+                };
             }
 
-            if (fixedResult.overflow) {
-                overflow.push(fixedResult.overflow);
-            }
-        }
+            // Tính lại priority scores cho tất cả tasks trước khi chạy lập lịch
+            await this.refreshPriorityScores(tasks);
 
-        const [workStartHour, workStartMinute] = this.parseTime(
-            prefs?.workStartTime ?? '09:00',
-        );
-        const [workEndHour, workEndMinute] = this.parseTime(
-            prefs?.workEndTime ?? '18:00',
-        );
-        const workDays = prefs?.workDays ?? [1, 2, 3, 4, 5];
-
-        // 2. Load EnergyFit và tạo các FreeSegments trống
-        const energyFit = await this.getEnergyFitScores(userId, timezone);
-        const freeSegments = this.buildFreeSegments(
-            weekStartLocal,
-            weekEndLocal,
-            planningStart,
-            blockedIntervals,
-            { hour: workStartHour, minute: workStartMinute },
-            { hour: workEndHour, minute: workEndMinute },
-            workDays,
-        );
-
-        let flexibleTasksScheduled = 0;
-
-        // 3. Xếp Flexible tasks với cơ chế fit-duration (work+break) và auto-split khi chạm biên
-        for (const task of flexibleTasks) {
-            const { workMinutes, breakMinutes } = this.getFocusDuration(task.focusMode);
-            const unitResult = this.buildWorkUnits(task);
-            warnings.push(...unitResult.warnings);
-
-            const units = this.removePreservedUnits(
-                unitResult.units,
-                creditablePreservedSlotsByTask.get(task.id) ?? [],
-                workMinutes,
-                breakMinutes,
+            const overdueTasks = tasks.filter(
+                (task) => task.deadline && task.deadline < now,
             );
-            const unscheduledUnits: WorkUnit[] = [];
-            let scheduledMinutes = 0;
+            const warnings: ScheduleWarning[] = overdueTasks.map((task) => ({
+                code: 'TASK_OVERDUE',
+                taskId: task.id,
+                taskTitle: task.title,
+                message: `Task đã quá deadline ${task.deadline!.toISOString()} và được ưu tiên khi lập lịch.`,
+            }));
+            const overflow: ScheduleOverflow[] = [];
 
-            for (const unit of units) {
-                const sessions = Math.ceil(unit.minutes / workMinutes);
-                const totalUnitDuration = unit.minutes + sessions * breakMinutes;
+            const fixedTasks = tasks
+                .filter((task) => task.isFixedTask)
+                .sort(
+                    (a, b) =>
+                        (a.fixedStart?.getTime() ?? Number.MAX_SAFE_INTEGER) -
+                        (b.fixedStart?.getTime() ?? Number.MAX_SAFE_INTEGER),
+                );
 
-                let remainingMinutes = totalUnitDuration;
+            const flexibleTasks = tasks
+                .filter((task) => !task.isFixedTask)
+                .sort((a, b) => this.compareFlexibleTasks(a, b, now));
 
-                while (remainingMinutes > 0) {
-                    const minMinutes = workMinutes + breakMinutes;
-                    const placement = this.allocateUnit(
-                        freeSegments,
-                        remainingMinutes,
-                        minMinutes,
-                        timezone,
-                        energyFit.scores,
-                        task.deadline,
-                    );
+            const plannedSlots: PlannedSlot[] = [];
+            const blockedIntervals = preservedSlots.map((slot) => ({
+                startAt: slot.startAt,
+                endAt: slot.endAt,
+            }));
+            const preservedSlotsByTask = new Map<string, typeof preservedSlots>();
+            for (const slot of preservedSlots) {
+                const list = preservedSlotsByTask.get(slot.taskId) ?? [];
+                list.push(slot);
+                preservedSlotsByTask.set(slot.taskId, list);
+            }
 
-                    if (!placement) {
-                        unscheduledUnits.push({
-                            ...unit,
-                            minutes: remainingMinutes,
-                        });
-                        break;
-                    }
+            // Chỉ các slot đã hoàn thành hoặc slot tương lai được giữ lại mới được
+            // trừ khỏi thời lượng cần xếp. Slot quá giờ chưa chạy chỉ là lịch sử,
+            // tuyệt đối không được coi là thời lượng công việc đã thực hiện.
+            const creditablePreservedSlotsByTask = new Map<string, typeof preservedSlots>();
+            for (const slot of preservedSlots) {
+                const isCreditable =
+                    slot.isCompleted ||
+                    (slot.startAt >= planningStart && slot.status !== SlotStatus.FROZEN_OVERDUE);
+                if (!isCreditable) continue;
 
-                    plannedSlots.push({
-                        userId,
-                        taskId: task.id,
-                        subtaskId: unit.subtaskId,
-                        startAt: placement.startAt,
-                        endAt: placement.endAt,
-                        isManual: false,
-                        status: SlotStatus.SCHEDULED,
-                        restructureStrategy: RestructureStrategy.NONE,
+                const list = creditablePreservedSlotsByTask.get(slot.taskId) ?? [];
+                list.push(slot);
+                creditablePreservedSlotsByTask.set(slot.taskId, list);
+            }
+
+            const fixedTasksAlreadyPreserved = new Set(
+                fixedTasks
+                    .filter(
+                        (task) =>
+                            task.fixedStart &&
+                            task.fixedEnd &&
+                            (preservedSlotsByTask.get(task.id) ?? []).some(
+                                (slot) =>
+                                    slot.startAt < task.fixedEnd! &&
+                                    slot.endAt > task.fixedStart!,
+                            ),
+                    )
+                    .map((task) => task.id),
+            );
+
+            // 1. Ghim fixed tasks trước
+            for (const task of fixedTasks) {
+                if (fixedTasksAlreadyPreserved.has(task.id)) continue;
+                const fixedResult = this.planFixedTask(
+                    task,
+                    userId,
+                    planningStart,
+                    weekStart,
+                    weekEnd,
+                    blockedIntervals,
+                    timezone,
+                    workWindow,
+                );
+
+                warnings.push(...fixedResult.warnings);
+
+                if (fixedResult.slot) {
+                    plannedSlots.push(fixedResult.slot);
+                    blockedIntervals.push({
+                        startAt: fixedResult.slot.startAt,
+                        endAt: fixedResult.slot.endAt,
                     });
+                }
 
-                    const durationFit = Math.round(
-                        (placement.endAt.getTime() - placement.startAt.getTime()) / 60_000,
-                    );
-                    remainingMinutes -= durationFit;
-                    scheduledMinutes += durationFit;
+                if (fixedResult.overflow) {
+                    overflow.push(fixedResult.overflow);
                 }
             }
 
-            if (scheduledMinutes > 0) {
-                flexibleTasksScheduled++;
-            }
+            // 2. Load EnergyFit và tạo các FreeSegments trống
+            const energyFit = await this.getEnergyFitScores(userId, timezone);
+            const freeSegments = this.subtractBlockingSlotsFromSegments(
+                rawSegments,
+                blockedIntervals,
+            );
 
-            if (unscheduledUnits.length > 0) {
-                const getOccupiedMinutes = (unit: WorkUnit) => {
+            let flexibleTasksScheduled = 0;
+
+            // 3. Xếp Flexible tasks với cơ chế fit-duration (work+break) và auto-split khi chạm biên
+            for (const task of flexibleTasks) {
+                const { workMinutes, breakMinutes } = this.getFocusDuration(task.focusMode);
+                const unitResult = this.buildWorkUnits(task);
+                warnings.push(...unitResult.warnings);
+
+                const units = this.removePreservedUnits(
+                    unitResult.units,
+                    creditablePreservedSlotsByTask.get(task.id) ?? [],
+                    workMinutes,
+                    breakMinutes,
+                );
+                const unscheduledUnits: WorkUnit[] = [];
+                let scheduledMinutes = 0;
+
+                for (const unit of units) {
                     const sessions = Math.ceil(unit.minutes / workMinutes);
-                    return unit.minutes + sessions * breakMinutes;
-                };
-                const requiredMinutes = units.reduce(
-                    (sum, unit) => sum + getOccupiedMinutes(unit),
-                    0,
-                );
-                const remainingMinutes = unscheduledUnits.reduce(
-                    (sum, unit) => sum + getOccupiedMinutes(unit),
-                    0,
-                );
+                    const totalUnitDuration = unit.minutes + sessions * breakMinutes;
 
-                overflow.push({
-                    taskId: task.id,
-                    taskTitle: task.title,
-                    taskType: 'FLEXIBLE',
-                    requiredMinutes,
-                    scheduledMinutes,
-                    remainingMinutes,
-                    unscheduledUnits: unscheduledUnits.map((unit) => ({
-                        subtaskId: unit.subtaskId,
-                        title: unit.title,
-                        minutes: getOccupiedMinutes(unit),
-                        type: unit.type,
-                    })),
-                    reason: 'WEEK_CAPACITY_EXCEEDED',
-                });
+                    let remainingMinutes = totalUnitDuration;
 
-                warnings.push({
-                    code: 'UNIT_NOT_SCHEDULED',
-                    taskId: task.id,
-                    taskTitle: task.title,
-                    message: `Còn ${remainingMinutes} phút thuộc ${unscheduledUnits.length} unit chưa có chỗ trong tuần.`,
-                });
+                    while (remainingMinutes > 0) {
+                        const minMinutes = workMinutes + breakMinutes;
+                        const placement = this.allocateUnit(
+                            freeSegments,
+                            remainingMinutes,
+                            minMinutes,
+                            timezone,
+                            energyFit.scores,
+                            task.deadline,
+                        );
+
+                        if (!placement) {
+                            unscheduledUnits.push({
+                                ...unit,
+                                minutes: remainingMinutes,
+                            });
+                            break;
+                        }
+
+                        plannedSlots.push({
+                            userId,
+                            taskId: task.id,
+                            subtaskId: unit.subtaskId,
+                            startAt: placement.startAt,
+                            endAt: placement.endAt,
+                            isManual: false,
+                            status: SlotStatus.SCHEDULED,
+                            restructureStrategy: RestructureStrategy.NONE,
+                            logicalDate: new Date(placement.dayKey + 'T00:00:00.000Z'),
+                        });
+
+                        const durationFit = Math.round(
+                            (placement.endAt.getTime() - placement.startAt.getTime()) / 60_000,
+                        );
+                        remainingMinutes -= durationFit;
+                        scheduledMinutes += durationFit;
+                    }
+                }
+
+                if (scheduledMinutes > 0) {
+                    flexibleTasksScheduled++;
+                }
+
+                if (unscheduledUnits.length > 0) {
+                    const getOccupiedMinutes = (unit: WorkUnit) => {
+                        const sessions = Math.ceil(unit.minutes / workMinutes);
+                        return unit.minutes + sessions * breakMinutes;
+                    };
+                    const requiredMinutes = units.reduce(
+                        (sum, unit) => sum + getOccupiedMinutes(unit),
+                        0,
+                    );
+                    const remainingMinutes = unscheduledUnits.reduce(
+                        (sum, unit) => sum + getOccupiedMinutes(unit),
+                        0,
+                    );
+
+                    overflow.push({
+                        taskId: task.id,
+                        taskTitle: task.title,
+                        taskType: 'FLEXIBLE',
+                        requiredMinutes,
+                        scheduledMinutes,
+                        remainingMinutes,
+                        unscheduledUnits: unscheduledUnits.map((unit) => ({
+                            subtaskId: unit.subtaskId,
+                            title: unit.title,
+                            minutes: getOccupiedMinutes(unit),
+                            type: unit.type,
+                        })),
+                        reason: 'WEEK_CAPACITY_EXCEEDED',
+                    });
+
+                    warnings.push({
+                        code: 'UNIT_NOT_SCHEDULED',
+                        taskId: task.id,
+                        taskTitle: task.title,
+                        message: `Còn ${remainingMinutes} phút thuộc ${unscheduledUnits.length} unit chưa có chỗ trong tuần.`,
+                    });
+                }
             }
-        }
 
-        // 4. Chỉ khi kế hoạch đã tính xong hoàn toàn mới thực hiện transaction xóa và tạo slots
-        await this.prisma.$transaction(async (tx) => {
-            await tx.scheduleSlot.deleteMany({
-                where: {
-                    userId,
-                    isManual: false,
-                    isCompleted: false,
-                    task: {
-                        status: { not: TaskStatus.DONE }
+            const logicalWeekStart = new Date(weekStartLocal.toISODate() + 'T00:00:00.000Z');
+            const logicalWeekEnd = new Date(weekEndLocal.toISODate() + 'T00:00:00.000Z');
+
+            // 4. Chỉ khi kế hoạch đã tính xong hoàn toàn mới thực hiện transaction xóa và tạo slots
+            await this.prisma.$transaction(async (tx) => {
+                await tx.scheduleSlot.deleteMany({
+                    where: {
+                        userId,
+                        isManual: false,
+                        status: SlotStatus.SCHEDULED,
+                        startAt: { gte: planningStart },
+                        logicalDate: {
+                            gte: logicalWeekStart,
+                            lt: logicalWeekEnd,
+                        },
                     },
-                    startAt: { gte: planningStart, lt: weekEnd },
-                },
+                });
+
+                if (plannedSlots.length > 0) {
+                    await tx.scheduleSlot.createMany({ data: plannedSlots });
+                }
+
             });
-
-            if (plannedSlots.length > 0) {
-                await tx.scheduleSlot.createMany({ data: plannedSlots });
-            }
-
-        });
 
         const createdSlots = await this.getSlotsInRange(userId, weekStart, weekEnd);
 
@@ -442,7 +477,7 @@ export class SchedulerService {
         return {
             message:
                 overflow.length > 0
-                    ? 'Đã tạo lịch nhưng vẫn còn unit chưa được xếp hết'
+                    ? 'Đã tạo lịch nhưng vẫn còn task chưa được xếp hết'
                     : 'Đã tạo lịch tuần thành công',
             timezone,
             weekStart,
@@ -743,10 +778,17 @@ export class SchedulerService {
         const where: Prisma.ScheduleSlotWhereInput = { userId };
 
         if (from || to) {
-            const startAtFilter: Prisma.DateTimeFilter = {};
-            if (from) startAtFilter.gte = this.parseDateOrThrow(from, 'from');
-            if (to) startAtFilter.lte = this.parseDateOrThrow(to, 'to');
-            where.startAt = startAtFilter;
+            const parsedFrom = from ? this.parseDateOrThrow(from, 'from') : null;
+            const parsedTo = to ? this.parseDateOrThrow(to, 'to') : null;
+
+            if (parsedFrom && parsedTo) {
+                where.startAt = { lt: parsedTo };
+                where.endAt = { gt: parsedFrom };
+            } else if (parsedFrom) {
+                where.startAt = { gte: parsedFrom };
+            } else if (parsedTo) {
+                where.startAt = { lte: parsedTo };
+            }
         }
 
         const slots = await this.prisma.scheduleSlot.findMany({
@@ -795,12 +837,24 @@ export class SchedulerService {
             );
         }
 
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            include: { preference: true },
+        });
+        const tz = user?.timezone || 'Asia/Ho_Chi_Minh';
+        const workWindow = parseWorkWindow(
+            user?.preference?.workStartTime || '09:00',
+            user?.preference?.workEndTime || '18:00',
+        );
+        const logicalDate = resolveLogicalDate(newStart, tz, workWindow);
+
         const updated = await this.prisma.scheduleSlot.update({
             where: { id: slotId },
             data: {
                 startAt: newStart,
                 endAt: newEnd,
                 isManual: true,
+                logicalDate,
             },
             include: this.slotInclude,
         });
@@ -832,11 +886,16 @@ export class SchedulerService {
      */
     async restructure(userId: string) {
         const now = new Date();
+        const { weekStartLocal } = await this.getWeekContext(userId, now);
+        const logicalWeekStart = new Date(weekStartLocal.toISODate() + 'T00:00:00.000Z');
+
         const affectedSlots = await this.prisma.scheduleSlot.findMany({
             where: {
                 userId,
-                startAt: { gte: now },
                 isManual: false,
+                status: SlotStatus.SCHEDULED,
+                startAt: { gte: now },
+                logicalDate: { gte: logicalWeekStart },
             },
             select: { taskId: true },
         });
@@ -1097,6 +1156,8 @@ export class SchedulerService {
         weekStart: Date,
         weekEnd: Date,
         blockedIntervals: Array<{ startAt: Date; endAt: Date }>,
+        timezone: string,
+        workWindow: WorkWindow,
     ): {
         slot: PlannedSlot | null;
         overflow: ScheduleOverflow | null;
@@ -1203,6 +1264,7 @@ export class SchedulerService {
                 isManual: false,
                 status: SlotStatus.SCHEDULED,
                 restructureStrategy: RestructureStrategy.NONE,
+                logicalDate: resolveLogicalDate(task.fixedStart, timezone, workWindow),
             },
             overflow: null,
             warnings,
@@ -1252,7 +1314,7 @@ export class SchedulerService {
         timezone: string,
         energyScores: Map<number, number> | null,
         deadline: Date | null,
-    ): { startAt: Date; endAt: Date } | null {
+    ): { startAt: Date; endAt: Date; dayKey: string } | null {
         const dayKeys = [...new Set(freeSegments.map((segment) => segment.dayKey))];
 
         for (const dayKey of dayKeys) {
@@ -1317,6 +1379,7 @@ export class SchedulerService {
             return {
                 startAt: selected.startAt,
                 endAt: selected.endAt,
+                dayKey,
             };
         }
 
@@ -1393,16 +1456,17 @@ export class SchedulerService {
 
     // ─── FREE TIME + ENERGY FIT ───────────────────────────────
 
-    private buildFreeSegments(
+    private buildRawFreeSegments(
         weekStartLocal: DateTime,
         weekEndLocal: DateTime,
         planningStart: Date,
-        blockingSlots: Array<{ startAt: Date; endAt: Date }>,
         workStart: { hour: number; minute: number },
         workEnd: { hour: number; minute: number },
         workDays: number[],
+        isOvernight: boolean,
+        timezone: string,
     ): FreeSegment[] {
-        const freeSegments: FreeSegment[] = [];
+        const rawSegments: FreeSegment[] = [];
         let day = weekStartLocal.startOf('day');
         const planningStartMillis = planningStart.getTime();
 
@@ -1418,40 +1482,58 @@ export class SchedulerService {
                 second: 0,
                 millisecond: 0,
             });
-            const dayEnd = day.set({
-                hour: workEnd.hour,
-                minute: workEnd.minute,
-                second: 0,
-                millisecond: 0,
-            });
+
+            const dayEnd = isOvernight
+                ? day.plus({ days: 1 }).set({
+                      hour: workEnd.hour,
+                      minute: workEnd.minute,
+                      second: 0,
+                      millisecond: 0,
+                  })
+                : day.set({
+                      hour: workEnd.hour,
+                      minute: workEnd.minute,
+                      second: 0,
+                      millisecond: 0,
+                  });
 
             if (dayStart.toMillis() < planningStartMillis) {
                 dayStart = DateTime.fromMillis(planningStartMillis, {
-                    zone: day.zoneName ?? this.DEFAULT_TIMEZONE,
+                    zone: timezone,
                 });
             }
 
             if (dayStart.toMillis() < dayEnd.toMillis()) {
-                const window = {
+                rawSegments.push({
                     start: dayStart.toUTC().toJSDate(),
                     end: dayEnd.toUTC().toJSDate(),
-                };
-                const segments = this.subtractBlockingSlots(
-                    window,
-                    blockingSlots,
-                );
-                const dayKey = day.toISODate()!;
-                freeSegments.push(
-                    ...segments.map((segment) => ({ ...segment, dayKey })),
-                );
+                    dayKey: day.toISODate()!,
+                });
             }
 
             day = day.plus({ days: 1 });
         }
 
-        return freeSegments.sort(
-            (a, b) => a.start.getTime() - b.start.getTime(),
-        );
+        return rawSegments;
+    }
+
+    private subtractBlockingSlotsFromSegments(
+        rawSegments: FreeSegment[],
+        blockingSlots: Array<{ startAt: Date; endAt: Date }>,
+    ): FreeSegment[] {
+        const result: FreeSegment[] = [];
+        for (const segment of rawSegments) {
+            const window = { start: segment.start, end: segment.end };
+            const subtracted = this.subtractBlockingSlots(window, blockingSlots);
+            for (const sub of subtracted) {
+                result.push({
+                    start: sub.start,
+                    end: sub.end,
+                    dayKey: segment.dayKey,
+                });
+            }
+        }
+        return result.sort((a, b) => a.start.getTime() - b.start.getTime());
     }
 
     private subtractBlockingSlots(
@@ -1605,7 +1687,8 @@ export class SchedulerService {
         return this.prisma.scheduleSlot.findMany({
             where: {
                 userId,
-                startAt: { gte: from, lt: to },
+                startAt: { lt: to },
+                endAt: { gt: from },
             },
             include: this.slotInclude,
             orderBy: { startAt: 'asc' },
@@ -1688,18 +1771,12 @@ export class SchedulerService {
     }
 
     private parseTime(value: string): [number, number] {
-        const [hour, minute] = value.split(':').map(Number);
-        if (
-            !Number.isInteger(hour) ||
-            !Number.isInteger(minute) ||
-            hour < 0 ||
-            hour > 23 ||
-            minute < 0 ||
-            minute > 59
-        ) {
+        try {
+            const minutes = parseHHMM(value);
+            return [Math.floor(minutes / 60), minutes % 60];
+        } catch {
             return [9, 0];
         }
-        return [hour, minute];
     }
 
     private parseDateOrThrow(value: string, field: string) {

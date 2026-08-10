@@ -14,7 +14,7 @@ import { Modal } from '../components/ui/Modal';
 import { createToast, type ToastMessage } from '../components/common/Toast';
 import accountService from '../services/account.service';
 import settingsService from '../services/settings.service';
-import useAuthStore from '../store/authStore'; 
+import useAuthStore from '../store/authStore';
 
 
 /* ─── Types ─── */
@@ -46,11 +46,6 @@ const LANGUAGES = [
 ];
 
 const HOURS = Array.from({ length: 24 }, (_, i) => `${i.toString().padStart(2, '0')}:00`);
-const HALF_HOURS = Array.from({ length: 48 }, (_, i) => {
-  const h = Math.floor(i / 2);
-  const m = i % 2 === 0 ? '00' : '30';
-  return `${h.toString().padStart(2, '0')}:${m}`;
-});
 
 /* ─── Sub-components ─── */
 
@@ -139,41 +134,20 @@ interface TimePickerProps {
 }
 
 function TimePicker({ value, onChange, disabled }: TimePickerProps) {
-  const [open, setOpen] = useState(false);
   return (
-    <div className="relative" style={{ minWidth: 100 }}>
-      <button
-        onClick={() => !disabled && setOpen(!open)}
-        disabled={disabled}
-        className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-sm"
-        style={{ background: '#FFFFFF', border: '1px solid #E8F5E8', color: '#243024', opacity: disabled ? 0.5 : 1 }}
-      >
-        <span>{value}</span>
-        <ChevronDown size={14} style={{ color: '#9CA3AF' }} />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div
-            className="absolute top-full left-0 right-0 mt-1 rounded-xl overflow-hidden z-20 max-h-48 overflow-y-auto"
-            style={{ background: '#FFFFFF', border: '1px solid #E8F5E8', boxShadow: '0 8px 24px rgba(36, 48, 36, 0.12)' }}
-          >
-            {HALF_HOURS.map((time) => (
-              <button
-                key={time}
-                onClick={() => { onChange(time); setOpen(false); }}
-                className="w-full px-3 py-2 text-left text-sm transition-colors"
-                style={{ background: value === time ? '#DDF3DF' : 'transparent', color: '#243024' }}
-                onMouseEnter={(e) => { if (value !== time) e.currentTarget.style.background = '#F4FAF4'; }}
-                onMouseLeave={(e) => { if (value !== time) e.currentTarget.style.background = 'transparent'; }}
-              >
-                {time}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
+    <input
+      type="time"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={disabled}
+      className="px-3 py-2 rounded-xl text-sm font-medium outline-none transition-colors border"
+      style={{
+        background: '#FFFFFF',
+        borderColor: '#E8F5E8',
+        color: '#243024',
+        opacity: disabled ? 0.5 : 1,
+      }}
+    />
   );
 }
 
@@ -339,8 +313,8 @@ function DeleteAccountModal({ open, onClose, onConfirm, userEmail }: DeleteAccou
 /* ─── Section Components ─── */
 
 function AccountSection({ onToast }: { onToast: (toast: ToastMessage) => void }) {
-  const setUser = useAuthStore((state) => state.setUser); 
-  
+  const setUser = useAuthStore((state) => state.setUser);
+
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -369,7 +343,7 @@ function AccountSection({ onToast }: { onToast: (toast: ToastMessage) => void })
       onToast(createToast('error', 'Tên hiển thị không được để trống'));
       return;
     }
-      setSavingProfile(true);
+    setSavingProfile(true);
     try {
       const updatedUser = await accountService.updateProfile({ displayName: normalizedDisplayName, });
 
@@ -381,7 +355,7 @@ function AccountSection({ onToast }: { onToast: (toast: ToastMessage) => void })
 
     } catch (err: any) {
       onToast(createToast('error', err?.message ?? 'Không thể lưu thay đổi'));
-    } 
+    }
     finally {
       setSavingProfile(false);
     }
@@ -474,7 +448,7 @@ function WorkHoursSection({ onToast }: { onToast: (toast: ToastMessage) => void 
   const [saving, setSaving] = useState(false);
 
   //Load user preference
-  
+
   useEffect(() => {
     setLoading(true);
     settingsService.getPreferences()
@@ -495,7 +469,33 @@ function WorkHoursSection({ onToast }: { onToast: (toast: ToastMessage) => void 
     );
   };
 
+  const toMinutes = (hhmm: string): number => {
+    if (!hhmm) return 0;
+    const [h, m] = hhmm.split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+
   const handleSave = async () => {
+    const startMin = toMinutes(workStartTime);
+    const endMin = toMinutes(workEndTime);
+
+    if (startMin === endMin) {
+      onToast(createToast('error', 'Giờ bắt đầu và kết thúc không được giống nhau'));
+      return;
+    }
+
+    const isOvernight = endMin < startMin;
+    const duration = isOvernight ? (24 * 60 - startMin + endMin) : (endMin - startMin);
+
+    if (duration < 30) {
+      onToast(createToast('error', 'Khung giờ làm việc tối thiểu là 30 phút'));
+      return;
+    }
+    if (duration > 720) {
+      onToast(createToast('error', 'Khung giờ làm việc tối đa là 12 tiếng'));
+      return;
+    }
+
     setSaving(true);
     try {
       await settingsService.updatePreferences({
@@ -574,6 +574,28 @@ function WorkHoursSection({ onToast }: { onToast: (toast: ToastMessage) => void 
               <span className="text-xs" style={{ color: '#9CA3AF' }}>24h</span>
             </div>
           </div>
+
+          {(() => {
+            const startMin = toMinutes(workStartTime);
+            const endMin = toMinutes(workEndTime);
+            if (isNaN(startMin) || isNaN(endMin)) return null;
+            const isOvernight = endMin < startMin;
+            const duration = isOvernight ? (24 * 60 - startMin + endMin) : (endMin - startMin);
+            const hrs = Math.floor(duration / 60);
+            const mins = duration % 60;
+            return (
+              <div className="flex items-center gap-3 mt-4 flex-wrap text-xs font-semibold">
+                {isOvernight && (
+                  <span className="px-2.5 py-1 rounded-xl text-amber-700 bg-amber-50 border border-amber-200 flex items-center gap-1">
+                    🌙 Ca qua ngày hôm sau
+                  </span>
+                )}
+                <span style={{ color: '#5F6E5F' }}>
+                  Thời lượng làm việc: {hrs} giờ {mins > 0 ? `${mins} phút` : ''}
+                </span>
+              </div>
+            );
+          })()}
         </div>
 
         {/*Ngày làm việc trong tuần*/}

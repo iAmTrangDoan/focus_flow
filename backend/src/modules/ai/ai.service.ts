@@ -232,36 +232,143 @@ export class AiService {
         const droppedSessions = sessions.filter(s => s.status === 'CANCELLED').length;
 
         // CHẶN CASE DỮ LIỆU THIẾU để tiết kiệm token
-        if (totalTasks === 0 && totalSessions === 0 && logs.length === 0) {
-            const staticContent = {
-                summary: 'Chưa có đủ dữ liệu hoạt động trong tuần này.',
-                strengths: [],
-                concerns: [],
-                actionableSuggestions: [
-                    {
-                        content: 'Chào mừng bạn đến với FocusFlow! Hãy bắt đầu tạo công việc mới và thực hiện các phiên Pomodoro để chúng tôi có đủ dữ liệu phân tích năng suất cho bạn.',
-                        actionType: 'none',
-                    }
-                ],
-            };
+        // if (totalTasks === 0 && totalSessions === 0 && logs.length === 0) {
+        //     const staticContent = {
+        //         summary: 'Chưa có đủ dữ liệu hoạt động trong tuần này.',
+        //         strengths: [],
+        //         concerns: [],
+        //         actionableSuggestions: [
+        //             {
+        //                 content: 'Chào mừng bạn đến với FocusFlow! Hãy bắt đầu tạo công việc mới và thực hiện các phiên Pomodoro để chúng tôi có đủ dữ liệu phân tích năng suất cho bạn.',
+        //                 actionType: 'none',
+        //             }
+        //         ],
+        //     };
 
-            await this.prisma.aiInsight.update({
-                where: { id: record.id },
-                data: {
-                    content: staticContent,
-                    inputSummary: { totalTasks: 0, completedTasks: 0, totalSessions: 0 } as any,
-                    status: InsightStatus.GENERATED,
-                    isActionable: false,
-                },
-            });
+        //     await this.prisma.aiInsight.update({
+        //         where: { id: record.id },
+        //         data: {
+        //             content: staticContent,
+        //             inputSummary: { totalTasks: 0, completedTasks: 0, totalSessions: 0 } as any,
+        //             status: InsightStatus.GENERATED,
+        //             isActionable: false,
+        //         },
+        //     });
 
-            const updated = await this.prisma.aiInsight.findUnique({ where: { id: record.id } });
-            return this.formatInsight(updated!);
-        }
+        //     const updated = await this.prisma.aiInsight.findUnique({ where: { id: record.id } });
+        //     return this.formatInsight(updated!);
+        // }
         
 
         // Tính các chỉ số nâng cao phục vụ Prompt
         // 1. Phân phối sự kiện
+
+        const MIN_SESSIONS_FOR_AI = 3;
+        const MIN_BEHAVIOR_LOGS_FOR_AI = 5;
+
+        const hasNoData =
+            totalTasks === 0 &&
+            totalSessions === 0 &&
+            logs.length === 0;
+
+        const hasEnoughData =
+            totalSessions >= MIN_SESSIONS_FOR_AI ||
+            logs.length >= MIN_BEHAVIOR_LOGS_FOR_AI;
+
+
+        if (hasNoData) {
+        const staticContent = {
+            insights: [
+                {
+                    category: 'getting_started',
+                    content:
+                        'Chào mừng bạn đến với FocusFlow! Hãy tạo công việc và bắt đầu các phiên Pomodoro để hệ thống có thể phân tích thói quen làm việc của bạn.',
+                    actionable: false,
+                    actionType: 'none',
+                },
+            ],
+            summary:
+                'Bạn chưa có dữ liệu hoạt động trong tuần này. Hãy bắt đầu sử dụng FocusFlow để nhận được nhận xét cá nhân hóa.',
+        };
+        
+        await this.prisma.aiInsight.update({
+            where: { id: record.id },
+            data: {
+                content: staticContent,
+                inputSummary: {
+                totalTasks,
+                completedTasks,
+                totalSessions,
+                completedSessions,
+                droppedSessions,
+                behaviorLogCount: logs.length,
+                dataLevel: 'NO_DATA',
+            } as any,
+            status: InsightStatus.GENERATED,
+            isActionable: false,
+        },
+    });
+
+    const updated = await this.prisma.aiInsight.findUnique({
+        where: { id: record.id },
+    });
+
+    return this.formatInsight(updated!);
+}
+
+    // ─── CÓ DỮ LIỆU NHƯNG CHƯA ĐỦ ĐỂ GỌI GEMINI ───────────────
+
+    if (!hasEnoughData) {
+        const limitedDataContent = {
+            insights: [
+                {
+                    category: 'limited_data',
+                    content:
+                        `Bạn đã bắt đầu sử dụng FocusFlow với ${totalTasks} công việc ` +
+                        `và ${totalSessions} phiên Pomodoro. Tuy nhiên, hệ thống cần thêm ` +
+                        `dữ liệu để nhận diện chính xác thói quen làm việc của bạn.`,
+                    actionable: true,
+                    actionType: 'complete_more_sessions',
+                },
+                {
+                    category: 'next_step',
+                    content:
+                        `Hãy hoàn thành ít nhất ${MIN_SESSIONS_FOR_AI} phiên Pomodoro ` +
+                        `hoặc tiếp tục làm việc để hệ thống ghi nhận thêm hành vi trong tuần.`,
+                    actionable: true,
+                    actionType: 'start_pomodoro',
+                },
+            ],
+            summary:
+                'Dữ liệu hiện tại chưa đủ để tạo nhận xét AI cá nhân hóa. Hãy tiếp tục hoàn thành một vài phiên tập trung.',
+        };
+
+        await this.prisma.aiInsight.update({
+            where: { id: record.id },
+            data: {
+                content: limitedDataContent,
+                inputSummary: {
+                    totalTasks,
+                    completedTasks,
+                    totalSessions,
+                    completedSessions,
+                    droppedSessions,
+                    behaviorLogCount: logs.length,
+                    minimumSessionsRequired: MIN_SESSIONS_FOR_AI,
+                    minimumBehaviorLogsRequired: MIN_BEHAVIOR_LOGS_FOR_AI,
+                    dataLevel: 'LIMITED_DATA',
+                } as any,
+                status: InsightStatus.GENERATED,
+                isActionable: true,
+            },
+        });
+
+        const updated = await this.prisma.aiInsight.findUnique({
+            where: { id: record.id },
+        });
+
+        return this.formatInsight(updated!);
+    }
         const eventCounts = this.countEvents(logs);
 
         // 2. Procrastination Score

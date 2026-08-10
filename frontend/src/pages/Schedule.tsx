@@ -22,13 +22,16 @@ interface ScheduleTask {
   subtaskId: string | null
   title: string
   dayOfWeek: number
-  startMinutes: number // Phút tính từ 00:00 theo timezone đang hiển thị.
-  durationMinutes: number   // work+break trên lịch
+  startMinutes: number // Phút tính từ 00:00 theo local timezone đang hiển thị.
+  durationMinutes: number   // work+break trên lịch (của segment này)
   startAt: string
   endAt: string
   priority: TaskPriority
   status: TaskStatus
   type: 'fixed' | 'flexible'
+  // Overnight split: chỉ tồn tại trong bộ nhớ React, không phản ánh DB
+  isOvernightSegment?: boolean     // true nếu slot này bị tách qua đêm
+  segmentPart?: 'start' | 'end'   // 'start' = phần đầu ngày, 'end' = phần sang ngày tiếp
 }
 
 interface WeekInfo {
@@ -38,8 +41,8 @@ interface WeekInfo {
 }
 
 const DAYS = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'CN']
-const DAY_START_MINUTES = 7 * 60
-const DAY_END_MINUTES = 22 * 60 + 30
+const DAY_START_MINUTES = 0
+const DAY_END_MINUTES = 24 * 60
 const HALF_HOUR_MINUTES = 30
 const HALF_HOUR_HEIGHT = 38
 
@@ -47,15 +50,18 @@ const TOTAL_CALENDAR_MINUTES = DAY_END_MINUTES - DAY_START_MINUTES
 const CALENDAR_HEIGHT = (TOTAL_CALENDAR_MINUTES / HALF_HOUR_MINUTES) * HALF_HOUR_HEIGHT
 
 const TIME_MARKS = Array.from(
-  { length: TOTAL_CALENDAR_MINUTES / HALF_HOUR_MINUTES + 1 },
+  { 
+    length: TOTAL_CALENDAR_MINUTES / HALF_HOUR_MINUTES + 1 
+  },
   (_, index) => {
     const totalMinutes = DAY_START_MINUTES + index * HALF_HOUR_MINUTES
     const hour = Math.floor(totalMinutes / 60)
     const minute = totalMinutes % 60
     return {
       totalMinutes,
-      label: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
-      top: index * HALF_HOUR_HEIGHT,
+      label: 
+        totalMinutes == DAY_END_MINUTES ? '' : `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+        top: index * HALF_HOUR_HEIGHT,
     }
   },
 )
@@ -63,7 +69,7 @@ const TIME_MARKS = Array.from(
 const PRIORITY_COLORS: Record<TaskPriority, { bg: string; text: string }> = {
   high: { bg: '#F6D8C7', text: '#C1644C' },
   medium: { bg: '#F7E7A8', text: '#B8860B' },
-  low: { bg: '#F7E7A8', text: '#B8860B' },
+  low: { bg: '#a8d5f7ff', text: '#267bd0ff' },
 }
 
 function startOfLocalDay(date: Date): Date {
@@ -151,12 +157,13 @@ function TaskBlock({
   const isOverdue = task.status === 'frozen_overdue'
   const isCompleted = task.status === 'completed'
   const isVisuallyOverdue = task.status === 'scheduled' && new Date(task.startAt).getTime() < new Date().getTime()
-  const isFixed = task.type === 'fixed' || isCompleted
+  // Overnight segment không được kéo — tránh nhầm lẫn nghiệp vụ
+  const isFixed = task.type === 'fixed' || isCompleted || task.isOvernightSegment === true
   const [shaking, setShaking] = useState(false)
 
   const VISUAL_END_BREAK_MINUTES = 5;
   const visualDurationMinutes =
-    task.type === 'fixed'
+    task.type === 'fixed' || task.isOvernightSegment
       ? task.durationMinutes
       : Math.max(
         task.durationMinutes - VISUAL_END_BREAK_MINUTES,
@@ -168,10 +175,13 @@ function TaskBlock({
   const height = Math.max(20, naturalHeight)
 
   //Xử lý hiển thị nội dung task ngắn trên lịch
-  //Nếu task <35p : hiển thị tên và time cùng 1 đong
+  //Nếu task <35p : hiển thị tên và time cùng 1 dòng
   //Nếu task <20p : chỉ hiển thị tên task
   const isMedium = task.durationMinutes < 35;
   const isShort = task.durationMinutes < 20;
+
+  // Ẩn nút restructure trên segment 'end' để tránh nhầm lẫn
+  const showRestructure = isOverdue && !isFixed && task.segmentPart !== 'end'
 
   const handleDragStart = (event: React.DragEvent) => {
     if (isFixed) {
@@ -252,7 +262,7 @@ function TaskBlock({
             </span>
           )}
 
-          {isOverdue && !isFixed && (
+          {showRestructure && (
             <div className="flex items-center gap-1 shrink-0 ml-auto">
               <button
                 type="button"
@@ -294,7 +304,7 @@ function TaskBlock({
               {task.title}
             </p>
 
-            {isOverdue && !isFixed && (
+            {showRestructure && (
               <div className="flex items-center gap-1 shrink-0">
                 <button
                   type="button"
@@ -356,13 +366,33 @@ function TaskBlock({
         </div>
       )}
 
-      {isOverdue && !isFixed && (
+      {isOverdue && !isFixed && task.segmentPart !== 'end' && (
         <div
           className="absolute bottom-1 right-1"
           style={{ color: '#E8993A' }}
           title="Công việc quá hạn"
         >
           <AlertTriangle size={10} />
+        </div>
+      )}
+
+      {/* Overnight continuation indicators */}
+      {task.segmentPart === 'start' && (
+        <div
+          className="absolute bottom-0 left-0 right-0 flex justify-center items-center"
+          style={{ height: 14, background: 'rgba(0,0,0,0.06)', borderTop: '1px dashed rgba(0,0,0,0.15)' }}
+          title="Tiếp tục sang ngày hôm sau"
+        >
+          <span style={{ fontSize: 8, opacity: 0.55, letterSpacing: 1 }}>▼ tiếp</span>
+        </div>
+      )}
+      {task.segmentPart === 'end' && (
+        <div
+          className="absolute top-0 left-0 right-0 flex justify-center items-center"
+          style={{ height: 14, background: 'rgba(0,0,0,0.06)', borderBottom: '1px dashed rgba(0,0,0,0.15)' }}
+          title="Tiếp theo từ ngày hôm trước"
+        >
+          <span style={{ fontSize: 8, opacity: 0.55, letterSpacing: 1 }}>▲ tiếp theo</span>
         </div>
       )}
 
@@ -513,11 +543,18 @@ export default function SchedulePage({ onToast }: SchedulePageProps) {
           return []
         }
 
-        const dayOfWeek = getDayDifference(startAt, currentWeek.start)
-        if (dayOfWeek < 0 || dayOfWeek > 6) return []
+        // Lọc theo khoảng thời gian thực tế của tuần đang hiển thị để tránh bỏ sót các slot giao với biên thời gian
+        const weekEnd = new Date(currentWeek.start)
+        weekEnd.setDate(weekEnd.getDate() + 7)
+        if (endAt <= currentWeek.start || startAt >= weekEnd) {
+          return []
+        }
 
+        const dayOfWeek = getDayDifference(startAt, currentWeek.start)
+
+        // Tính theo local timezone: số phút kể từ 00:00 của ngày bắt đầu
         const startMinutes = startAt.getHours() * 60 + startAt.getMinutes()
-        const durationMinutes = Math.round(
+        const totalDurationMinutes = Math.round(
           (endAt.getTime() - startAt.getTime()) / 60_000,
         )
 
@@ -530,26 +567,75 @@ export default function SchedulePage({ onToast }: SchedulePageProps) {
               ? 'completed'
               : 'scheduled'
 
-        return [
-          {
-            id: slot.id,
-            taskId: slot.taskId,
-            subtaskId: slot.subtaskId,
-            title:
-              slot.unit?.title ??
-              slot.subtask?.title ??
-              slot.task?.title ??
-              'Công việc',
-            dayOfWeek,
-            startMinutes,
-            durationMinutes,
-            startAt: slot.startAt,
-            endAt: slot.endAt,
-            priority,
-            status,
-            type: slot.task.isFixedTask ? 'fixed' : 'flexible',
-          },
-        ]
+        const baseTask = {
+          id: slot.id,
+          taskId: slot.taskId,
+          subtaskId: slot.subtaskId,
+          title:
+            slot.unit?.title ??
+            slot.subtask?.title ??
+            slot.task?.title ??
+            'Công việc',
+          startAt: slot.startAt,
+          endAt: slot.endAt,
+          priority,
+          status,
+          type: slot.task.isFixedTask ? 'fixed' : 'flexible',
+        } as const
+
+        const MINUTES_PER_DAY = 24 * 60
+        const crossesMidnight = startMinutes + totalDurationMinutes > MINUTES_PER_DAY
+
+        if (!crossesMidnight) {
+          // Slot bình thường, không qua đêm
+          if (dayOfWeek < 0 || dayOfWeek > 6) return []
+          return [
+            {
+              ...baseTask,
+              dayOfWeek,
+              startMinutes,
+              durationMinutes: totalDurationMinutes,
+            },
+          ]
+        }
+
+        // --- Overnight split ---
+        // Dùng loop để hỗ trợ slot kéo dài nhiều ngày (>= 48h)
+        // Mốc nửa đêm tính theo local timezone: midnight = 00:00 ngày tiếp theo
+        const segments: ScheduleTask[] = []
+        let remainingMinutes = totalDurationMinutes
+        let currentDayIndex = dayOfWeek
+        let currentStartMinutes = startMinutes
+
+        while (remainingMinutes > 0 && currentDayIndex <= 6) {
+          const minutesUntilMidnight = MINUTES_PER_DAY - currentStartMinutes
+          const isFirstSegment = currentDayIndex === dayOfWeek
+          const segmentDuration = Math.min(remainingMinutes, minutesUntilMidnight)
+          const isLastSegment = segmentDuration === remainingMinutes
+          const isMultiDaySlot = totalDurationMinutes > MINUTES_PER_DAY || !isFirstSegment
+
+          if (currentDayIndex >= 0) {
+            segments.push({
+              ...baseTask,
+              dayOfWeek: currentDayIndex,
+              startMinutes: currentStartMinutes,
+              durationMinutes: segmentDuration,
+              // Chỉ đánh dấu overnight nếu slot thực sự bị tách
+              isOvernightSegment: isMultiDaySlot || !isLastSegment,
+              segmentPart: isFirstSegment
+                ? 'start'
+                : isLastSegment
+                  ? 'end'
+                  : 'start', // Đoạn giữa (ngày trọn vẹn) cũng dùng 'start' để hiện ▼
+            })
+          }
+
+          remainingMinutes -= segmentDuration
+          currentDayIndex += 1
+          currentStartMinutes = 0 // Các ngày tiếp theo bắt đầu từ 00:00
+        }
+
+        return segments
       }),
     [currentWeek.start],
   )
@@ -647,7 +733,7 @@ export default function SchedulePage({ onToast }: SchedulePageProps) {
     dayOfWeek: number,
   ) => {
     event.preventDefault()
-    if (!draggedTask || draggedTask.type === 'fixed') return
+    if (!draggedTask || draggedTask.type === 'fixed' || draggedTask.isOvernightSegment === true) return
 
     const rect = event.currentTarget.getBoundingClientRect()
     const relativeY = Math.max(0, Math.min(CALENDAR_HEIGHT, event.clientY - rect.top))
@@ -655,6 +741,17 @@ export default function SchedulePage({ onToast }: SchedulePageProps) {
       DAY_START_MINUTES +
       (relativeY / HALF_HOUR_HEIGHT) * HALF_HOUR_MINUTES
     const snappedMinute = Math.round(rawMinute / 5) * 5
+    
+
+
+// Làm tròn theo bước 5 phút nhưng không cho startAt đạt 24:00.
+// const snappedMinute = Math.min(
+//   DAY_END_MINUTES - 5,
+//   Math.max(
+//     DAY_START_MINUTES,
+//     Math.round(rawMinute / 5) * 5,
+//   ),
+// )
 
     const newStartAt = new Date(currentWeek.start)
     newStartAt.setDate(newStartAt.getDate() + dayOfWeek)
@@ -802,7 +899,8 @@ export default function SchedulePage({ onToast }: SchedulePageProps) {
           }}
         >
           {loadingAutoSchedule && <ShimmerOverlay />}
-
+        
+        {/* Grid tổng thể lịch */}
           <div className="overflow-x-auto">
             <div
               className="grid"

@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   X, Wand2, Loader2, Plus, Trash2, Clock, Calendar,
-  ChevronUp, ChevronDown, Timer,
+  ChevronUp, ChevronDown, Timer, AlertCircle,
 } from 'lucide-react';
 import type { TaskType, Importance, Subtask } from '../../types';
 import tasksService from '../../services/tasks.service';
+import schedulerService, { type ScheduleSlot } from '../../services/scheduler.service';
 
 /* ─── Types ─── */
 export interface NewTaskData {
@@ -13,7 +14,8 @@ export interface NewTaskData {
   importance: Importance;
   estimatedMinutes?: number;
   deadline?: string;
-  date?: string;
+  date?: string;         // ngày bắt đầu (YYYY-MM-DD)
+  endDate?: string;      // ngày kết thúc (YYYY-MM-DD), có thể khác date nếu task qua đêm
   startTime?: string;
   endTime?: string;
   subtasks: Subtask[];
@@ -68,11 +70,14 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
   const [aiError, setAiError] = useState<string | null>(null);
   const [typeVisible, setTypeVisible] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [conflictWarning, setConflictWarning] = useState<string | null>(null);
+  const [conflictChecking, setConflictChecking] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
   const deadlineInputRef = useRef<HTMLInputElement>(null);
   const dateInputRef = useRef<HTMLInputElement>(null);
+  const conflictDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const canSave = title.trim().length > 0;
+  const canSave = title.trim().length > 0 && !conflictWarning;
 
   /* Focus & scroll lock */
   useEffect(() => {
@@ -106,9 +111,88 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
     setDeadline(''); setDate(''); setStartTime(''); setEndTime('');
     setSubtasks([]); setAiLoading(false); setAiError(null); setTypeVisible(false);
     setValidationError(null);
+    setConflictWarning(null);
+    setConflictChecking(false);
+    if (conflictDebounceRef.current) clearTimeout(conflictDebounceRef.current);
   };
 
   const handleClose = () => { reset(); onClose(); };
+
+  /* ─── Conflict detection ─── */
+  /**
+   * Kiểm tra xem khoảng [newStart, newEnd) có giao nhau với slot không.
+   * Xử lý cả slot qua đêm (slot.startAt > slot.endAt về giờ không xảy ra,
+   * nhưng ISO string sẽ tự đúng). Overlap khi: newStart < slotEnd && newEnd > slotStart.
+   */
+  const checkConflict = useCallback(async (checkDate: string, checkStart: string, checkEnd: string) => {
+    if (!checkDate || !checkStart || !checkEnd) {
+      setConflictWarning(null);
+      setConflictChecking(false);
+      return;
+    }
+
+    // Tính endDate thực: nếu giờ kết thúc < giờ bắt đầu → qua đêm
+    const isOvernight = checkEnd < checkStart;
+    const endDateStr = isOvernight
+      ? (() => { const d = new Date(checkDate); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })()
+      : checkDate;
+
+    const newStart = new Date(`${checkDate}T${checkStart}`);
+    const newEnd = new Date(`${endDateStr}T${checkEnd}`);
+
+    if (isNaN(newStart.getTime()) || isNaN(newEnd.getTime()) || newEnd <= newStart) {
+      setConflictWarning(null);
+      setConflictChecking(false);
+      return;
+    }
+
+    setConflictChecking(true);
+    try {
+      // Fetch slots bao phủ toàn bộ khoảng thời gian (cả qua đêm)
+      const fromISO = new Date(`${checkDate}T00:00:00`).toISOString();
+      const toISO = new Date(`${endDateStr}T23:59:59`).toISOString();
+      const slots: ScheduleSlot[] = await schedulerService.getSlots(fromISO, toISO);
+
+      const conflictSlot = slots.find((slot) => {
+        const slotStart = new Date(slot.startAt);
+        const slotEnd = new Date(slot.endAt);
+        // Overlap: newStart < slotEnd && newEnd > slotStart
+        return newStart < slotEnd && newEnd > slotStart;
+      });
+
+      const conflictTitle = conflictSlot.unit.title ?? conflictSlot.subtask.title ?? conflictSlot.task.title ?? ' công việc khác '
+
+      if (conflictSlot) {
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const fmtDT = (iso: string) => {
+          const d = new Date(iso);
+          return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        };
+        setConflictWarning(
+          `Khung giờ này bị trùng với "${conflictTitle}" (${fmtDT(conflictSlot.startAt)} – ${fmtDT(conflictSlot.endAt)}). Vui lòng chọn thời gian khác.`
+        );
+      } else {
+        setConflictWarning(null);
+      }
+    } catch {
+      // Lỗi mạng → không chặn người dùng, chỉ bỏ qua
+      setConflictWarning(null);
+    } finally {
+      setConflictChecking(false);
+    }
+  }, []);
+
+  /* Debounce 300 ms khi date/startTime/endTime thay đổi */
+  useEffect(() => {
+    if (type !== 'fixed') { setConflictWarning(null); return; }
+    if (conflictDebounceRef.current) clearTimeout(conflictDebounceRef.current);
+    conflictDebounceRef.current = setTimeout(() => {
+      checkConflict(date, startTime, endTime);
+    }, 300);
+    return () => {
+      if (conflictDebounceRef.current) clearTimeout(conflictDebounceRef.current);
+    };
+  }, [date, startTime, endTime, type, checkConflict]);
 
   const aiLoadingRef = useRef(false);
 
@@ -168,7 +252,11 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
         return;
       }
       const start = new Date(`${date}T${startTime}`);
-      const end = new Date(`${date}T${endTime}`);
+      // Nếu giờ kết thúc < giờ bắt đầu (HH:MM so sánh string) → end thuộc ngày hôm sau
+      const overnightEndDate = endTime < startTime
+        ? (() => { const d = new Date(date); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })()
+        : date;
+      const end = new Date(`${overnightEndDate}T${endTime}`);
       if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
         setValidationError('Định dạng ngày giờ không hợp lệ.');
         return;
@@ -203,6 +291,10 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
     }
 
     setValidationError(null);
+    // Tính endDate chính xác: nếu giờ kết thúc < giờ bắt đầu → qua đêm → ngày kế tiếp
+    const resolvedEndDate = type === 'fixed' && endTime && startTime && endTime < startTime
+      ? (() => { const d = new Date(date); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })()
+      : date;
     onSave({
       title: title.trim(), type, importance,
       estimatedMinutes: type === 'flexible' ? (subtasks.length > 0 ? totalMin : Number(estimatedMinutes)) : undefined,
@@ -210,6 +302,7 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
       date: type === 'fixed' ? date : undefined,
       startTime: type === 'fixed' ? startTime : undefined,
       endTime: type === 'fixed' ? endTime : undefined,
+      endDate: type === 'fixed' ? resolvedEndDate : undefined,
       subtasks: subtasks.filter((s) => s.title.trim()),
     });
     reset(); onClose();
@@ -309,7 +402,16 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
             {/* Animated fields */}
             <div
               className="overflow-hidden transition-all duration-300 ease-in-out"
-              style={{ maxHeight: typeVisible ? (type === 'fixed' ? 240 : 200) + (validationError ? 40 : 0) : 0, opacity: typeVisible ? 1 : 0, marginTop: typeVisible ? 12 : 0 }}
+              style={{
+                maxHeight: typeVisible
+                  ? (type === 'fixed' ? 280 : 200)
+                  + (validationError ? 44 : 0)
+                  + (conflictWarning ? 56 : 0)
+                  + (conflictChecking ? 28 : 0)
+                  : 0,
+                opacity: typeVisible ? 1 : 0,
+                marginTop: typeVisible ? 12 : 0,
+              }}
             >
               {type === 'flexible' ? (
                 <div className="space-y-3">
@@ -409,13 +511,44 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
                     ].map(({ label, val, set }) => (
                       <div key={label}>
                         <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: '#9CA3AF' }}>{label}</label>
-                        <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl" style={{ background: '#F4FAF4', border: '1.5px solid #E8F5E8' }}>
-                          <Clock size={15} style={{ color: '#5F6E5F' }} />
-                          <input type="time" value={val} onChange={(e) => set(e.target.value)} className="flex-1 bg-transparent outline-none text-sm" style={{ color: '#243024' }} />
+                        <div
+                          className="flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all duration-200"
+                          style={{
+                            background: '#F4FAF4',
+                            border: conflictWarning ? '1.5px solid #C1644C' : '1.5px solid #E8F5E8',
+                          }}
+                        >
+                          <Clock size={15} style={{ color: conflictWarning ? '#C1644C' : '#5F6E5F' }} />
+                          <input
+                            type="time"
+                            value={val}
+                            onChange={(e) => set(e.target.value)}
+                            className="flex-1 bg-transparent outline-none text-sm"
+                            style={{ color: '#243024' }}
+                          />
                         </div>
                       </div>
                     ))}
                   </div>
+
+                  {/* ── Conflict / checking indicator ── */}
+                  {conflictChecking && (
+                    <div className="flex items-center gap-2 mt-1">
+                      <Loader2 size={13} className="animate-spin" style={{ color: '#9CA3AF' }} />
+                      <span className="text-xs" style={{ color: '#9CA3AF' }}>Đang kiểm tra lịch...</span>
+                    </div>
+                  )}
+                  {!conflictChecking && conflictWarning && (
+                    <div
+                      className="flex items-start gap-2 mt-1 px-3 py-2.5 rounded-xl"
+                      style={{ background: '#FEF2F0', border: '1px solid #F4C9C0' }}
+                    >
+                      <AlertCircle size={14} className="mt-0.5 shrink-0" style={{ color: '#C1644C' }} />
+                      <p className="text-xs leading-relaxed" style={{ color: '#C1644C' }}>
+                        {conflictWarning}
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
               {validationError && (
@@ -434,6 +567,7 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
             <div className="flex gap-3">
               {([
                 { val: 'HIGH' as Importance, label: 'High', bg: '#F6D8C7', text: '#C1644C' },
+                { val: 'MEDIUM' as Importance, label: 'Medium', bg: '#F7E7A8', text: '#B8860B' },
                 { val: 'LOW' as Importance, label: 'Low', bg: '#F7E7A8', text: '#B8860B' },
               ] as const).map(({ val, label, bg, text }) => (
                 <button
@@ -608,11 +742,11 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
           </button>
           <button
             onClick={handleSave}
-            disabled={!canSave}
+            disabled={!canSave || conflictChecking}
             className="flex-[2] py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 hover:opacity-90 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ background: '#5FAF6E', color: '#fff' }}
           >
-            Tạo công việc
+            {conflictChecking ? 'Đang kiểm tra...' : 'Tạo công việc'}
           </button>
         </div>
       </div>

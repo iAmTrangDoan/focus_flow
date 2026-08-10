@@ -58,9 +58,7 @@ export class AnalyticsService {
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
         const observationEnd =
-            targetDate.getTime() === todayStart.getTime()
-                ? new Date()
-                : new Date(
+            targetDate.getTime() === todayStart.getTime() ? new Date(): new Date(
                       targetDate.getFullYear(),
                       targetDate.getMonth(),
                       targetDate.getDate(),
@@ -68,11 +66,12 @@ export class AnalyticsService {
                       59,
                       59,
                       999,
-                  );
+                    );
 
-        const periodDays = weights.periodDays;
+        const periodDays = weights.periodDays; //số ngày quan sát mặc định 14
+
         const periodStart = new Date(observationEnd);
-        periodStart.setDate(periodStart.getDate() - periodDays);
+        periodStart.setDate(periodStart.getDate() - (periodDays-1));
         periodStart.setHours(0, 0, 0, 0);
 
         const [logs, tasks, dueSlotCount, deadlineTasks] = await Promise.all([
@@ -86,6 +85,7 @@ export class AnalyticsService {
                 where: {
                     userId,
                     createdAt: { lte: observationEnd },
+                    //lấy task chưa hoàn thành hoặc đã hoàn thành trong kỳ quan sát
                     OR: [
                         { status: { not: 'DONE' } },
                         { completedAt: { gte: periodStart } },
@@ -114,22 +114,21 @@ export class AnalyticsService {
         const delayedSlotCount = logs.filter(
             (log) => log.eventType === EventType.TASK_DELAYED,
         ).length;
-        const delayRate = dueSlotCount > 0
-            ? (Math.min(delayedSlotCount, dueSlotCount) / dueSlotCount) * 100
-            : 0;
 
+        const delayRate = dueSlotCount > 0 ? (Math.min(delayedSlotCount, dueSlotCount) / dueSlotCount) * 100 : 0;
 
         // 2. Deadline Miss Rate: chỉ xét các task có deadline nằm trong kỳ quan sát.
-        // Numerator đếm theo taskId duy nhất, không đếm số lần cron chạy.
         const missedTaskIds = new Set(
             logs
                 .filter((log) => log.eventType === EventType.DEADLINE_MISSED)
-                .map((log) => log.taskId)
+                .map((log) => log.taskId) //chuyển từng log thành task_id
                 .filter((taskId): taskId is string => Boolean(taskId)),
         );
+
         const missedDeadlines = deadlineTasks.filter((task) =>
             missedTaskIds.has(task.id),
         ).length;
+
         const deadlineMissRate = deadlineTasks.length > 0
             ? (missedDeadlines / deadlineTasks.length) * 100
             : 0;
@@ -378,6 +377,8 @@ export class AnalyticsService {
      */
     @Cron('0 10 0 * * *', { timeZone: 'Asia/Ho_Chi_Minh' })
     async calculateDailySnapshots(): Promise<void> {
+
+        //tính điểm của ngày hôm trước
         const snapshotDate = new Date();
         snapshotDate.setDate(snapshotDate.getDate() - 1);
         snapshotDate.setHours(0, 0, 0, 0);

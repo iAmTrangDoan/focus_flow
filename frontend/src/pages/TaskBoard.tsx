@@ -159,7 +159,8 @@ export default function TaskBoardPage({ onToast }: Props) {
         estimatedMinutes: data.estimatedMinutes,
         deadline: data.type === 'flexible' && data.deadline ? new Date(data.deadline).toISOString() : undefined,
         fixedStart: data.type === 'fixed' && data.date && data.startTime ? localDateTimeToIso(data.date, data.startTime) : undefined,
-        fixedEnd: data.type === 'fixed' && data.date && data.endTime ? localDateTimeToIso(data.date, data.endTime) : undefined,
+        // endDate có thể là ngày hôm sau nếu task qua đêm (fallback về date nếu không có)
+        fixedEnd: data.type === 'fixed' && data.endTime ? localDateTimeToIso(data.endDate ?? data.date ?? '', data.endTime) : undefined,
         subtasks: data.subtasks.map((subtask, index) => ({
           title: subtask.title,
           estimatedMinutes: subtask.estimatedMinutes || 15,
