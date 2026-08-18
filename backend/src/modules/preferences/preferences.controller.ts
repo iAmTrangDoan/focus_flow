@@ -2,6 +2,8 @@ import {
     Controller,
     Get,
     Put,
+    Post,
+    Delete,
     Body,
     UseGuards,
     HttpCode,
@@ -16,7 +18,7 @@ import {
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PreferencesService } from './preferences.service';
-import { UpdatePreferencesDto } from './dto/update-preferences.dto';
+import { UpdatePreferencesDto, TestSaveGeminiKeyDto } from './dto/update-preferences.dto';
 
 @ApiTags('Preferences')
 @Controller('preferences')
@@ -42,5 +44,35 @@ export class PreferencesController {
         @Body() dto: UpdatePreferencesDto,
     ) {
         return this.preferencesService.update(userId, dto);
+    }
+
+    // ─── GEMINI AI KEY ENDPOINTS ──────────────────────────────────────────────
+
+    @Get('gemini-status')
+    @ApiOperation({ summary: 'Lấy trạng thái kết nối Gemini AI (không trả về key thô)' })
+    @ApiResponse({ status: 200, description: '{ connected: boolean, maskedKey: string | null }' })
+    async getGeminiStatus(@CurrentUser('id') userId: string) {
+        return this.preferencesService.getGeminiStatus(userId);
+    }
+
+    @Post('gemini-key/test-save')
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: 'Kiểm tra Gemini API key và lưu nếu hợp lệ' })
+    @ApiResponse({ status: 200, description: 'Key hợp lệ, đã lưu thành công' })
+    @ApiResponse({ status: 401, description: 'API key không hợp lệ' })
+    @ApiResponse({ status: 400, description: 'Key rỗng hoặc vượt rate limit' })
+    async testAndSaveGeminiKey(
+        @CurrentUser('id') userId: string,
+        @Body() dto: TestSaveGeminiKeyDto,
+    ) {
+        return this.preferencesService.testAndSaveGeminiKey(userId, dto.apiKey);
+    }
+
+    @Delete('gemini-key')
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: 'Gỡ bỏ Gemini API key của user' })
+    @ApiResponse({ status: 200, description: 'Đã xoá key thành công' })
+    async revokeGeminiKey(@CurrentUser('id') userId: string) {
+        return this.preferencesService.revokeGeminiKey(userId);
     }
 }

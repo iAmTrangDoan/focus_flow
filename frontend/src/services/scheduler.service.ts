@@ -1,4 +1,5 @@
 import api from './api'
+import type { Importance } from '../types'
 
 export type UnitType = 'TASK' | 'SUBTASK' | 'REMAINDER'
 export type SlotStatus = 'SCHEDULED' | 'FROZEN_OVERDUE' | 'COMPLETED'
@@ -16,7 +17,7 @@ export interface ScheduleTaskRef {
   id: string
   title: string
   status: 'TODO' | 'IN_PROGRESS' | 'DONE'
-  importance: 'HIGH' | 'LOW'
+  importance: Importance
   focusMode: 'STANDARD' | 'DEEP_FOCUS'
   isFixedTask: boolean
   subtasks: Array<{ id: string }>

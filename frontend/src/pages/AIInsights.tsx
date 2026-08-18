@@ -53,6 +53,25 @@ function mapApiInsight(ai: AiInsight) {
     status: 'new' as const,
   }));
 
+  if (ai.content?.insights) {
+    ai.content.insights.forEach((item, i) => {
+      if (item.category === 'procrastination_pattern') {
+        concerns.push({ id: `${ai.id}-con-${i}`, content: item.content });
+      } else if (item.category === 'golden_hours' || item.category === 'completion_rate' || item.category === 'getting_started') {
+        strengths.push({ id: `${ai.id}-str-${i}`, content: item.content });
+      } else if (item.actionable) {
+        suggestions.push({
+          id: `${ai.id}-sugg-${i}`,
+          content: item.content,
+          actionType: item.actionType || 'none',
+          status: 'new'
+        });
+      } else {
+        concerns.push({ id: `${ai.id}-con-${i}`, content: item.content });
+      }
+    });
+  }
+
   return { strengths, concerns, suggestions, summary: ai.content?.summary ?? '' };
 }
 

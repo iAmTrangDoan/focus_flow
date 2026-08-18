@@ -1,15 +1,24 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Play, Pause, X, RotateCcw, ChevronDown } from 'lucide-react';
+import { Play, Pause, X, RotateCcw } from 'lucide-react';
 import { ProgressRing } from '../components/ui/ProgressRing';
 import { Modal } from '../components/ui/Modal';
-import { Badge } from '../components/ui/Badge';
 import { createToast, type ToastMessage } from '../components/common/Toast';
 import focusService, {
   type DropReason,
   type FocusUnit,
   type PomodoroSession,
+  type Attachment,
 } from '../services/focus.service';
+import tasksService from '../services/tasks.service';
+import schedulerService from '../services/scheduler.service';
 
+// Workspace Components
+import { TomatoProgress } from '../components/focus/TomatoProgress';
+import { TaskSwitcherCard } from '../components/focus/TaskSwitcherCard';
+import { TaskSwitcherPopover } from '../components/focus/TaskSwitcherPopover';
+import { PerformanceBar } from '../components/focus/PerformanceBar';
+import { LiveNotes } from '../components/focus/LiveNotes';
+import { AttachmentsBlock } from '../components/focus/AttachmentsBlock';
 
 /* ─── Constants ─── */
 const FOCUS_DURATION = 25 * 60;
@@ -20,8 +29,7 @@ const SESSIONS_UNTIL_LONG_BREAK = 4;
 /*
  * Lưu session chưa complete thành công do mất mạng.
  */
-const PENDING_COMPLETE_KEY ='focusflow.pendingPomodoroComplete';
-
+const PENDING_COMPLETE_KEY = 'focusflow.pendingPomodoroComplete';
 
 type TimerPhase = 'focus' | 'short_break' | 'long_break';
 type TimerStatus = 'idle' | 'running' | 'paused';
@@ -138,281 +146,27 @@ function SessionEndOverlay({ open, phase, completedSessions, onStartBreak }: Ses
   );
 }
 
-/* ─── Unit Selector ─── */
-interface UnitSelectorProps {
-  selectedUnit: FocusUnit | null;
-  onSelect: (unit: FocusUnit) => void;
-  units: FocusUnit[];
-  disabled?: boolean;
-}
-
-function UnitSelector({
-  selectedUnit,
-  onSelect,
-  units,
-  disabled = false,
-}: UnitSelectorProps) {
-  const [open, setOpen] = useState(false);
-
-  const dropdownRef =
-    useRef<HTMLDivElement>(null);
-
-  /*
-   * GET /pomodoro/units đã chỉ trả về
-   * các unit chưa hoàn thành.
-   */
-  const availableUnits = units;
-
-  useEffect(() => {
-    const handleClickOutside = (
-      event: MouseEvent,
-    ) => {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(
-          event.target as Node,
-        )
-      ) {
-        setOpen(false);
-      }
-    };
-
-    document.addEventListener(
-      'mousedown',
-      handleClickOutside,
-    );
-
-    return () => {
-      document.removeEventListener(
-        'mousedown',
-        handleClickOutside,
-      );
-    };
-  }, []);
-
-  return (
-    <div
-      ref={dropdownRef}
-      className="relative inline-block"
-    >
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => {
-          if (!disabled) {
-            setOpen((current) => !current);
-          }
-        }}
-        className="flex items-center gap-3 px-4 py-3 rounded-2xl transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-        style={{
-          background: '#FFFFFF',
-          border: '1px solid #E8F5E8',
-          boxShadow:
-            '0 2px 8px rgba(36, 48, 36, 0.06)',
-          minWidth: 320,
-        }}
-      >
-        {selectedUnit ? (
-          <>
-            <div className="flex-1 min-w-0 text-left">
-              {/* Tên task cha hoặc tên task */}
-              <p
-                className="text-sm font-semibold truncate"
-                style={{ color: '#243024' }}
-              >
-                {selectedUnit.type === 'SUBTASK'
-                  ? selectedUnit.taskTitle
-                  : selectedUnit.title}
-              </p>
-
-              {/* Nếu là subtask thì hiển thị bên dưới */}
-              {selectedUnit.type === 'SUBTASK' && (
-                <p
-                  className="text-xs truncate mt-0.5"
-                  style={{ color: '#5F6E5F' }}
-                >
-                  ↳ {selectedUnit.title}
-                </p>
-              )}
-
-              <div className="flex items-center gap-2 mt-1">
-                <Badge
-                  variant={
-                    selectedUnit.importance === 'HIGH'
-                      ? 'danger'
-                      : 'warning'
-                  }
-                >
-                  {selectedUnit.importance === 'HIGH'
-                    ? 'High'
-                    : 'Low'}
-                </Badge>
-
-                <span
-                  className="text-xs font-medium"
-                  style={{ color: '#5FAF6E' }}
-                >
-                  {selectedUnit.completedMinutes}/
-                  {selectedUnit.estimatedMinutes} phút
-                </span>
-              </div>
-            </div>
-
-            <ChevronDown
-              size={18}
-              style={{ color: '#9CA3AF' }}
-              className={`transition-transform ${
-                open ? 'rotate-180' : ''
-              }`}
-            />
-          </>
-        ) : (
-          <>
-            <p
-              className="flex-1 text-left text-sm"
-              style={{ color: '#9CA3AF' }}
-            >
-              Chọn công việc để tập trung
-            </p>
-
-            <ChevronDown
-              size={18}
-              style={{ color: '#9CA3AF' }}
-              className={`transition-transform ${
-                open ? 'rotate-180' : ''
-              }`}
-            />
-          </>
-        )}
-      </button>
-
-      {open && !disabled && (
-        <div
-          className="absolute top-full left-0 right-0 mt-2 rounded-2xl overflow-hidden z-20"
-          style={{
-            background: '#FFFFFF',
-            boxShadow:
-              '0 8px 24px rgba(36, 48, 36, 0.12)',
-            border: '1px solid #E8F5E8',
-          }}
-        >
-          <div className="max-h-72 overflow-y-auto">
-            {availableUnits.length === 0 ? (
-              <p
-                className="px-4 py-4 text-sm text-center"
-                style={{ color: '#9CA3AF' }}
-              >
-                Không có công việc chưa hoàn thành
-              </p>
-            ) : (
-              availableUnits.map((unit) => {
-                const isSelected =
-                  selectedUnit?.taskId === unit.taskId &&
-                  selectedUnit?.subtaskId ===
-                    unit.subtaskId;
-
-                return (
-                  <button
-                    type="button"
-                    key={`${unit.taskId}:${
-                      unit.subtaskId ?? 'TASK'
-                    }`}
-                    onClick={() => {
-                      onSelect(unit);
-                      setOpen(false);
-                    }}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors"
-                    style={{
-                      background: isSelected
-                        ? '#DDF3DF'
-                        : 'transparent',
-                    }}
-                    onMouseEnter={(event) => {
-                      if (!isSelected) {
-                        event.currentTarget.style.background =
-                          '#F4FAF4';
-                      }
-                    }}
-                    onMouseLeave={(event) => {
-                      if (!isSelected) {
-                        event.currentTarget.style.background =
-                          'transparent';
-                      }
-                    }}
-                  >
-                    <div className="flex-1 min-w-0">
-                      {/* Hiển thị tiêu đề task cha  */}
-                      <p
-                        className="text-sm font-semibold truncate"
-                        style={{ color: '#243024' }}
-                      >
-                        {unit.type === 'SUBTASK'
-                          ? unit.taskTitle
-                          : unit.title}
-                      </p>
-
-                      {unit.type === 'SUBTASK' && (
-                        <p
-                          className="text-xs truncate mt-0.5"
-                          style={{ color: '#5F6E5F' }}
-                        >
-                          ↳ {unit.title}
-                        </p>
-                      )}
-
-                      <div className="flex items-center gap-2 mt-1">
-                        <Badge
-                          variant={
-                            unit.importance === 'HIGH'
-                              ? 'danger'
-                              : 'warning'
-                          }
-                        >
-                          {unit.importance === 'HIGH'
-                            ? 'High'
-                            : 'Low'}
-                        </Badge>
-
-                        <span
-                          className="text-xs"
-                          style={{ color: '#5FAF6E' }}
-                        >
-                          Còn {unit.remainingMinutes} phút
-                        </span>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ========================= HELPERS =========================
-  function getApiErrorMessage(
-    error: unknown,
-    fallback: string,
-  ): string {
-    const message = (
-      error as {
-        response?: {
-          data?: {
-            message?: string | string[];
-          };
+function getApiErrorMessage(
+  error: unknown,
+  fallback: string,
+): string {
+  const message = (
+    error as {
+      response?: {
+        data?: {
+          message?: string | string[];
         };
-      }
-    )?.response?.data?.message;
-
-    if (Array.isArray(message)) {
-      return message[0] ?? fallback;
+      };
     }
+  )?.response?.data?.message;
 
-    return message || fallback;
+  if (Array.isArray(message)) {
+    return message[0] ?? fallback;
   }
+
+  return message || fallback;
+}
 
 /* ─── Main Focus Sessions Page ─── */
 interface FocusSessionsPageProps {
@@ -421,7 +175,7 @@ interface FocusSessionsPageProps {
 
 export default function FocusSessionsPage({ onToast }: FocusSessionsPageProps) {
   const [units, setUnits] = useState<FocusUnit[]>([]);
-  const [selectedUnit, setSelectedUnit] =useState<FocusUnit | null>(null);
+  const [selectedUnit, setSelectedUnit] = useState<FocusUnit | null>(null);
 
   const [timeRemaining, setTimeRemaining] = useState(FOCUS_DURATION);
   const [status, setStatus] = useState<TimerStatus>('idle');
@@ -430,11 +184,160 @@ export default function FocusSessionsPage({ onToast }: FocusSessionsPageProps) {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showSessionEnd, setShowSessionEnd] = useState(false);
 
+  // Workspace States
+  const [notes, setNotes] = useState<string>('');
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [showSwitcher, setShowSwitcher] = useState(false);
+  const [completedSessionsToday, setCompletedSessionsToday] = useState(0);
+  const [totalSessionsToday, setTotalSessionsToday] = useState(6);
 
   const totalTimeRef = useRef(FOCUS_DURATION);
   const endAtRef = useRef<number | null>(null);
   const currentSessionIdRef = useRef<string | null>(null);
   const completingRef = useRef(false);
+
+  /* ─── Fetch notes & attachments when unit changes ─── */
+  const loadWorkspaceData = useCallback(async (unit: FocusUnit | null) => {
+    if (!unit) {
+      setNotes('');
+      setAttachments([]);
+      return;
+    }
+    try {
+      const task = await tasksService.getTask(unit.taskId);
+      if (unit.type === 'SUBTASK' && unit.subtaskId) {
+        const sub = task.subtasks.find((s) => s.id === unit.subtaskId);
+        setNotes(sub?.notes || '');
+        const files = await focusService.getSubtaskAttachments(unit.subtaskId);
+        setAttachments(files);
+      } else {
+        setNotes(task.notes || '');
+        const files = await focusService.getTaskAttachments(unit.taskId);
+        setAttachments(files);
+      }
+    } catch (err) {
+      console.error('Failed to load notes or attachments:', err);
+    }
+  }, []);
+
+  /* ─── Fetch completed sessions count today ─── */
+  const loadDailySessionsCount = useCallback(async () => {
+    try {
+      const sessions = await focusService.getSessions('COMPLETED');
+      const todayStr = new Date().toDateString();
+      const count = sessions.filter((s) => {
+        const d = new Date(s.endedAt || s.startedAt);
+        return d.toDateString() === todayStr;
+      }).length;
+      setCompletedSessionsToday(count);
+    } catch (err) {
+      console.error('Failed to load completed sessions:', err);
+    }
+  }, []);
+
+  /* ─── Fetch total sessions today (from schedule slots) ─── */
+  const loadTotalSessionsToday = useCallback(async () => {
+    try {
+      const slots = await schedulerService.getWeeklySchedule();
+      const todayStr = new Date().toDateString();
+      const todaySlots = slots.filter((s) => {
+        const d = new Date(s.startAt);
+        return d.toDateString() === todayStr;
+      });
+      setTotalSessionsToday(todaySlots.length || 6);
+    } catch (err) {
+      console.error('Failed to load scheduled slots:', err);
+      setTotalSessionsToday(6);
+    }
+  }, []);
+
+  // Initialize workspace data and daily stats
+  useEffect(() => {
+    void loadDailySessionsCount();
+    void loadTotalSessionsToday();
+  }, [loadDailySessionsCount, loadTotalSessionsToday]);
+
+  useEffect(() => {
+    void loadWorkspaceData(selectedUnit);
+  }, [selectedUnit, loadWorkspaceData]);
+
+  /* ─── Notes autosave handler ─── */
+  const handleSaveNotes = async (newNotes: string) => {
+    if (!selectedUnit) return;
+    try {
+      if (selectedUnit.type === 'SUBTASK' && selectedUnit.subtaskId) {
+        await focusService.updateSubtaskNotes(selectedUnit.subtaskId, newNotes);
+      } else {
+        await focusService.updateTaskNotes(selectedUnit.taskId, newNotes);
+      }
+    } catch (err) {
+      onToast(createToast('error', 'Không thể tự động lưu ghi chú.'));
+      throw err;
+    }
+  };
+
+  /* ─── Attachment upload handler ─── */
+  const handleUploadAttachment = async (file: File) => {
+    if (!selectedUnit) throw new Error('No task selected');
+    const sessionId = currentSessionIdRef.current || undefined;
+    if (selectedUnit.type === 'SUBTASK' && selectedUnit.subtaskId) {
+      const fileData = await focusService.uploadSubtaskAttachment(
+        selectedUnit.subtaskId,
+        file,
+        sessionId,
+      );
+      setAttachments((prev) => [fileData, ...prev]);
+      return fileData;
+    } else {
+      const fileData = await focusService.uploadTaskAttachment(
+        selectedUnit.taskId,
+        file,
+        sessionId,
+      );
+      setAttachments((prev) => [fileData, ...prev]);
+      return fileData;
+    }
+  };
+
+  /* ─── Attachment delete handler ─── */
+  const handleDeleteAttachment = async (attachmentId: string) => {
+    try {
+      await focusService.deleteAttachment(attachmentId);
+      setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
+      onToast(createToast('success', 'Đã xóa file đính kèm.'));
+    } catch (err) {
+      onToast(createToast('error', 'Không thể xóa file.'));
+    }
+  };
+
+  /* ─── Task Selector switcher selection handlers ─── */
+  const handleSelectUnit = (unit: FocusUnit) => {
+    setSelectedUnit(unit);
+    // If timer is running or paused, reset it to idle state
+    if (status !== 'idle') {
+      const sessionId = currentSessionIdRef.current;
+      if (sessionId) {
+        focusService.cancelSession(sessionId, 'Không còn phù hợp').catch(() => {});
+      }
+      currentSessionIdRef.current = null;
+      endAtRef.current = null;
+      setStatus('idle');
+      setTimeRemaining(FOCUS_DURATION);
+    }
+  };
+
+  const handleSelectSuggestion = async (taskId: string) => {
+    const matched = units.find((u) => u.taskId === taskId && u.type === 'TASK');
+    if (matched) {
+      handleSelectUnit(matched);
+    } else {
+      const refreshed = await loadUnits();
+      const matchAfterRefresh = refreshed.find((u) => u.taskId === taskId);
+      if (matchAfterRefresh) {
+        handleSelectUnit(matchAfterRefresh);
+      }
+    }
+  };
 
    /* ─── Áp dụng trạng thái session backend vào UI ─── */
   const applySession = useCallback(
@@ -481,29 +384,29 @@ export default function FocusSessionsPage({ onToast }: FocusSessionsPageProps) {
   );
 
   /* ── Load units ── */
-const loadUnits = useCallback(async () => {
-  const data = await focusService.getUnits();
+  const loadUnits = useCallback(async () => {
+    const data = await focusService.getUnits();
 
-  setUnits(data);
+    setUnits(data);
 
-  setSelectedUnit((currentUnit) => {
-    if (!currentUnit) {
-      return data[0] ?? null;
-    }
+    setSelectedUnit((currentUnit) => {
+      if (!currentUnit) {
+        return data[0] ?? null;
+      }
 
-    return (
-      data.find(
-        (unit) =>
-          unit.taskId === currentUnit.taskId &&
-          unit.subtaskId === currentUnit.subtaskId,
-      ) ??
-      data[0] ??
-      null
-    );
-  });
+      return (
+        data.find(
+          (unit) =>
+            unit.taskId === currentUnit.taskId &&
+            unit.subtaskId === currentUnit.subtaskId,
+        ) ??
+        data[0] ??
+        null
+      );
+    });
 
-  return data;
-}, []);
+    return data;
+  }, []);
 
   const finishCurrentTimer =
   useCallback(async () => {
@@ -520,20 +423,12 @@ const loadUnits = useCallback(async () => {
     const sessionId =
       currentSessionIdRef.current;
 
-    /*
-     * Break chạy local, không có session backend
-     * nên chỉ mở modal kết thúc.
-     */
     if (phase !== 'focus' || !sessionId) {
       setShowSessionEnd(true);
       completingRef.current = false;
       return;
     }
 
-    /*
-     * Lưu trước khi gọi API.
-     * Nếu request lỗi do mất mạng thì session ID vẫn còn.
-     */
     localStorage.setItem(
       PENDING_COMPLETE_KEY,
       sessionId,
@@ -551,6 +446,7 @@ const loadUnits = useCallback(async () => {
       currentSessionIdRef.current = null;
 
       await loadUnits();
+      await loadDailySessionsCount();
 
       setShowSessionEnd(true);
     } catch {
@@ -559,199 +455,200 @@ const loadUnits = useCallback(async () => {
     } finally {
       completingRef.current = false;
     }
-  }, [loadUnits, onToast, phase]);
+  }, [loadUnits, loadDailySessionsCount, onToast, phase]);
 
-//Effect timer tuyệt đối
-useEffect(() => {
-  let mounted = true;
+  //Effect timer tuyệt đối
+  useEffect(() => {
+    let mounted = true;
 
-  const initializePomodoro = async () => {
-    try {
-      const [loadedUnits, currentResponse] =
-        await Promise.all([
-          focusService.getUnits(),
-          focusService.getCurrentSession(),
-        ]);
+    const initializePomodoro = async () => {
+      try {
+        const [loadedUnits, currentResponse] =
+          await Promise.all([
+            focusService.getUnits(),
+            focusService.getCurrentSession(),
+          ]);
 
-      if (!mounted) {
-        return;
-      }
-
-      setUnits(loadedUnits);
-
-      if (currentResponse) {
-        const currentSession =
-          currentResponse.session;
-        
-          if (
-            currentSession.status === 'IN_PROGRESS' &&
-            currentSession.remainingSeconds <= 0
-          ) {
-            currentSessionIdRef.current =
-              currentSession.id;
-
-            localStorage.setItem(
-              PENDING_COMPLETE_KEY,
-              currentSession.id,
-            );
-
-            try {
-              await focusService.completeSession(
-                currentSession.id,
-              );
-
-              localStorage.removeItem(
-                PENDING_COMPLETE_KEY,
-              );
-
-              currentSessionIdRef.current = null;
-
-              const refreshedUnits =
-                await focusService.getUnits();
-
-              if (!mounted) {
-                return;
-              }
-
-              setUnits(refreshedUnits);
-              setSelectedUnit(
-                refreshedUnits[0] ?? null,
-              );
-
-              setShowSessionEnd(true);
-            } catch {
-              /*
-              * Giữ ID trong localStorage để effect
-              * online retry lại sau.
-              */
-            }
-
-            return;
-          }
-
-        const matchedUnit = loadedUnits.find(
-          (unit) =>
-            unit.taskId ===
-              currentSession.taskId &&
-            unit.subtaskId ===
-              currentSession.subtaskId,
-        );
-
-        if (matchedUnit) {
-          setSelectedUnit(matchedUnit);
-          }
-
-          applySession(currentSession);
-          return;
-        }
-
-        const params =
-          new URLSearchParams(
-            window.location.search,
-          );
-
-        const taskId = params.get('taskId');
-        const subtaskId =
-          params.get('subtaskId');
-
-        const matchedFromUrl =
-          loadedUnits.find(
-            (unit) =>
-              unit.taskId === taskId &&
-              unit.subtaskId === subtaskId,
-          ) ??
-          loadedUnits.find(
-            (unit) => unit.taskId === taskId,
-          );
-
-        setSelectedUnit(
-          matchedFromUrl ??
-            loadedUnits[0] ??
-            null,
-        );
-      } catch (error) {
         if (!mounted) {
           return;
         }
 
-        onToast(
-          createToast(
-            'error',
-            getApiErrorMessage(
-              error,
-              'Không thể tải dữ liệu Pomodoro.',
+        setUnits(loadedUnits);
+
+        if (currentResponse) {
+          const currentSession =
+            currentResponse.session;
+          
+            if (
+              currentSession.status === 'IN_PROGRESS' &&
+              currentSession.remainingSeconds <= 0
+            ) {
+              currentSessionIdRef.current =
+                currentSession.id;
+
+              localStorage.setItem(
+                PENDING_COMPLETE_KEY,
+                currentSession.id,
+              );
+
+              try {
+                await focusService.completeSession(
+                  currentSession.id,
+                );
+
+                localStorage.removeItem(
+                  PENDING_COMPLETE_KEY,
+                );
+
+                currentSessionIdRef.current = null;
+
+                const refreshedUnits =
+                  await focusService.getUnits();
+
+                if (!mounted) {
+                  return;
+                }
+
+                setUnits(refreshedUnits);
+                setSelectedUnit(
+                  refreshedUnits[0] ?? null,
+                );
+
+                setShowSessionEnd(true);
+              } catch {
+                /*
+                * Giữ ID trong localStorage để effect
+                * online retry lại sau.
+                */
+              }
+
+              return;
+            }
+
+          const matchedUnit = loadedUnits.find(
+            (unit) =>
+              unit.taskId ===
+                currentSession.taskId &&
+              unit.subtaskId ===
+                currentSession.subtaskId,
+          );
+
+          if (matchedUnit) {
+            setSelectedUnit(matchedUnit);
+            }
+
+            applySession(currentSession);
+            return;
+          }
+
+          const params =
+            new URLSearchParams(
+              window.location.search,
+            );
+
+          const taskId = params.get('taskId');
+          const subtaskId =
+            params.get('subtaskId');
+
+          const matchedFromUrl =
+            loadedUnits.find(
+              (unit) =>
+                unit.taskId === taskId &&
+                unit.subtaskId === subtaskId,
+            ) ??
+            loadedUnits.find(
+              (unit) => unit.taskId === taskId,
+            );
+
+          setSelectedUnit(
+            matchedFromUrl ??
+              loadedUnits[0] ??
+              null,
+          );
+        } catch (error) {
+          if (!mounted) {
+            return;
+          }
+
+          onToast(
+            createToast(
+              'error',
+              getApiErrorMessage(
+                error,
+                'Không thể tải dữ liệu Pomodoro.',
+              ),
             ),
-          ),
-        );
-      }
-    };
+          );
+        }
+      };
 
-    void initializePomodoro();
+      void initializePomodoro();
 
-    return () => {
-      mounted = false;
-    };
-  }, [applySession, onToast]);
+      return () => {
+        mounted = false;
+      };
+    }, [applySession, onToast]);
 
-//Efect Timer retry
-useEffect(() => {
-  const retryPendingCompletion =
-    async () => {
-      const pendingSessionId =
-        localStorage.getItem(
-          PENDING_COMPLETE_KEY,
-        );
+  //Efect Timer retry
+  useEffect(() => {
+    const retryPendingCompletion =
+      async () => {
+        const pendingSessionId =
+          localStorage.getItem(
+            PENDING_COMPLETE_KEY,
+          );
 
-      if (!pendingSessionId) {
-        return;
-      }
-
-      try {
-        await focusService.completeSession(
-          pendingSessionId,
-        );
-
-        localStorage.removeItem(
-          PENDING_COMPLETE_KEY,
-        );
-
-        if (
-          currentSessionIdRef.current ===
-          pendingSessionId
-        ) {
-          currentSessionIdRef.current = null;
+        if (!pendingSessionId) {
+          return;
         }
 
-        await loadUnits();
-      } catch {
-        /*
-         * Không xóa localStorage.
-         * Sẽ thử lại khi online lần tiếp theo
-         * hoặc khi trang được mở lại.
-         */
-      }
-    };
+        try {
+          await focusService.completeSession(
+            pendingSessionId,
+          );
 
-  /*
-   * Thử ngay khi component được mount.
-   */
-  void retryPendingCompletion();
+          localStorage.removeItem(
+            PENDING_COMPLETE_KEY,
+          );
 
-  /*
-   * Thử lại khi trình duyệt báo có mạng.
-   */
-  window.addEventListener(
-    'online',
-    retryPendingCompletion,
-  );
+          if (
+            currentSessionIdRef.current ===
+            pendingSessionId
+          ) {
+            currentSessionIdRef.current = null;
+          }
 
-  return () => {
-    window.removeEventListener(
+          await loadUnits();
+          await loadDailySessionsCount();
+        } catch {
+          /*
+           * Không xóa localStorage.
+           * Sẽ thử lại khi online lần tiếp theo
+           * hoặc khi trang được mở lại.
+           */
+        }
+      };
+
+    /*
+     * Thử ngay khi component được mount.
+     */
+    void retryPendingCompletion();
+
+    /*
+     * Thử lại khi trình duyệt báo có mạng.
+     */
+    window.addEventListener(
       'online',
       retryPendingCompletion,
     );
-  };
-}, [loadUnits]);
+
+    return () => {
+      window.removeEventListener(
+        'online',
+        retryPendingCompletion,
+      );
+    };
+  }, [loadUnits, loadDailySessionsCount]);
 
   const getTotalTime = useCallback((p: TimerPhase) => {
     switch (p) {
@@ -775,133 +672,59 @@ useEffect(() => {
     }
   };
 
-  // useEffect(() => {
-  //   if (status === 'running' && timeRemaining > 0) {
-  //     intervalRef.current = setInterval(() => {
-  //       setTimeRemaining((prev) => Math.max(0, prev - 1));
-  //     }, 1000);
-  //   }
-
-  //   if (timeRemaining === 0 && status === 'running') {
-  //     setStatus('idle');
-  //     setShowSessionEnd(true);
-  //     // Gọi API complete khi bộ đếm về 0
-  //     if (currentSessionId) {
-  //       focusService.completeSession(currentSessionId)
-  //         .catch(() => {})
-  //         .finally(() => setCurrentSessionId(null));
-  //     }
-  //   }
-
-  //   return () => {
-  //     if (intervalRef.current) clearInterval(intervalRef.current);
-  //   };
-  // }, [status, timeRemaining]);
-
-  // const handleStartPause = async () => {
-  //   if (status === 'idle') {
-  //     if (!selectedTask) {
-  //       onToast(createToast('error', 'Vui lòng chọn một task trước khi bắt đầu.'));
-  //       return;
-  //     }
-  //     // Gọi API start session
-  //     try {
-  //       const params = new URLSearchParams(window.location.search);
-  //       const subtaskId = params.get('subtaskId');
-  //       const scheduleSlotId = params.get('scheduleSlotId');
-  //       const response = await focusService.startSession(
-  //         selectedTask.id,
-  //         subtaskId,
-  //         scheduleSlotId,
-  //       );
-
-  //         setCurrentSessionId(response.session.id);
-
-  //         const totalSeconds = response.session.plannedDuration * 60;
-  //         totalTimeRef.current = totalSeconds;
-
-  //         setTimeRemaining(
-  //           response.session.remainingSeconds ?? totalSeconds,
-  //         );
-
-  //         // Chỉ chuyển sang running khi backend đã tạo phiên thành công
-  //         setStatus('running');
-  //     } catch {
-  //       onToast(
-  //         createToast(
-  //           'error',
-  //           'Không thể bắt đầu phiên Pomodoro. Vui lòng kiểm tra lại công việc hoặc kết nối mạng.',
-  //         ),
-  //       );  
-  //       return;
-  //     }
-  //   } else if (status === 'running') {
-  //       setStatus('paused');
-  //       if (currentSessionId) {
-  //         focusService.pauseSession(currentSessionId).catch(() => {});
-  //       }
-  //   } else if (status === 'paused') {
-  //       setStatus('running');
-  //       if (currentSessionId) {
-  //         focusService.resumeSession(currentSessionId).catch(() => {});
-  //       }
-  //   }
-  // };
-
   useEffect(() => {
-  if (status !== 'running') {
-    return;
-  }
-
-  const tick = () => {
-    const endAt = endAtRef.current;
-
-    if (!endAt) {
+    if (status !== 'running') {
       return;
     }
 
-    const remaining = Math.max(
-      0,
-      Math.ceil(
-        (endAt - Date.now()) / 1000,
-      ),
-    );
+    const tick = () => {
+      const endAt = endAtRef.current;
 
-    setTimeRemaining(remaining);
+      if (!endAt) {
+        return;
+      }
 
-    if (remaining === 0) {
-      void finishCurrentTimer();
-    }
-  };
+      const remaining = Math.max(
+        0,
+        Math.ceil(
+          (endAt - Date.now()) / 1000,
+        ),
+      );
 
-  tick();
+      setTimeRemaining(remaining);
 
-  const intervalId =
-    window.setInterval(tick, 500);
+      if (remaining === 0) {
+        void finishCurrentTimer();
+      }
+    };
 
-  const handleVisibilityChange = () => {
-    if (
-      document.visibilityState === 'visible'
-    ) {
-      tick();
-    }
-  };
+    tick();
 
-  document.addEventListener(
-    'visibilitychange',
-    handleVisibilityChange,
-  );
+    const intervalId =
+      window.setInterval(tick, 500);
 
-  return () => {
-    window.clearInterval(intervalId);
+    const handleVisibilityChange = () => {
+      if (
+        document.visibilityState === 'visible'
+      ) {
+        tick();
+      }
+    };
 
-    document.removeEventListener(
+    document.addEventListener(
       'visibilitychange',
       handleVisibilityChange,
     );
-  };
-}, [status, finishCurrentTimer]);
 
+    return () => {
+      window.clearInterval(intervalId);
+
+      document.removeEventListener(
+        'visibilitychange',
+        handleVisibilityChange,
+      );
+    };
+  }, [status, finishCurrentTimer]);
 
   const handleStartPause = async () => {
       if (status === 'idle') {
@@ -1024,52 +847,35 @@ useEffect(() => {
         }
       }
     };
-const handleCancel = () => {
-  if (status === 'idle') {
-    return;
-  }
+  const handleCancel = () => {
+    if (status === 'idle') {
+      return;
+    }
 
-  /*
-   * Break chỉ chạy local, không cần khảo sát drop.
-   */
-  if (
-    phase !== 'focus' ||
-    !currentSessionIdRef.current
-  ) {
-    const resetSeconds =
-      getTotalTime(phase);
+    /*
+     * Break chỉ chạy local, không cần khảo sát drop.
+     */
+    if (
+      phase !== 'focus' ||
+      !currentSessionIdRef.current
+    ) {
+      const resetSeconds =
+        getTotalTime(phase);
 
-    endAtRef.current = null;
-    totalTimeRef.current = resetSeconds;
+      endAtRef.current = null;
+      totalTimeRef.current = resetSeconds;
 
-    setStatus('idle');
-    setTimeRemaining(resetSeconds);
+      setStatus('idle');
+      setTimeRemaining(resetSeconds);
 
-    return;
-  }
+      return;
+    }
 
-  /*
-   * WORK session mới cần lý do drop.
-   */
-  setShowCancelModal(true);
-};
-
-  // const handleCancelReasonSelect = async (reason: string) => {
-  //   setShowCancelModal(false);
-  //   setStatus('idle');
-  //   setTimeRemaining(getTotalTime(phase));
-
-  //   if (currentSessionId) {
-  //     try {
-  //       await focusService.cancelSession(currentSessionId, reason as DropReason);
-  //       await focusService.sendQuickFeedback(currentSessionId, reason as DropReason);
-  //     } catch {
-  //       // Ghi nhận thất bại nhưng vẫn reset UI
-  //     }
-  //     setCurrentSessionId(null);
-  //   }
-  //   onToast(createToast('error', 'Đã ghi nhận. Phiên này được tính là 1 lần Bỏ ngang'));
-  // };
+    /*
+     * WORK session mới cần lý do drop.
+     */
+    setShowCancelModal(true);
+  };
    
   const handleCancelReasonSelect =
     async (reason: DropReason) => {
@@ -1102,6 +908,7 @@ const handleCancel = () => {
         setTimeRemaining(resetSeconds);
 
         await loadUnits();
+        await loadDailySessionsCount();
 
         onToast(
           createToast(
@@ -1123,28 +930,28 @@ const handleCancel = () => {
     };
 
   const handleReset = () => {
-  if (
-    status !== 'idle' ||
-    currentSessionIdRef.current
-  ) {
-    onToast(
-      createToast(
-        'warning',
-        'Hãy dừng phiên hiện tại trước khi đặt lại đồng hồ.',
-      ),
-    );
+    if (
+      status !== 'idle' ||
+      currentSessionIdRef.current
+    ) {
+      onToast(
+        createToast(
+          'warning',
+          'Hãy dừng phiên hiện tại trước khi đặt lại đồng hồ.',
+        ),
+      );
 
-    return;
-  }
+      return;
+    }
 
-  const resetSeconds =
-    getTotalTime(phase);
+    const resetSeconds =
+      getTotalTime(phase);
 
-  endAtRef.current = null;
-  totalTimeRef.current = resetSeconds;
+    endAtRef.current = null;
+    totalTimeRef.current = resetSeconds;
 
-  setTimeRemaining(resetSeconds);
-};
+    setTimeRemaining(resetSeconds);
+  };
 
   const handleSessionEnd = () => {
     setShowSessionEnd(false);
@@ -1153,6 +960,7 @@ const handleCancel = () => {
       const newCompletedSessions = completedSessions + 1;
       setCompletedSessions(newCompletedSessions);
       onToast(createToast('success', 'Hoàn thành phiên tập trung!'));
+      void loadDailySessionsCount();
 
       const isLongBreak = newCompletedSessions % SESSIONS_UNTIL_LONG_BREAK === 0;
       const nextPhase: TimerPhase = isLongBreak ? 'long_break' : 'short_break';
@@ -1173,7 +981,7 @@ const handleCancel = () => {
       setTimeRemaining(nextFocusSeconds);
       totalTimeRef.current =
         nextFocusSeconds;
-        }
+    }
   };
 
   const handleDemoEndSession = () => {
@@ -1190,189 +998,149 @@ const handleCancel = () => {
     ? 0
     : ((totalTimeRef.current - timeRemaining) / totalTimeRef.current) * 100;
 
+  const activeWorkspaceKey = selectedUnit
+    ? `${selectedUnit.taskId}:${selectedUnit.subtaskId || 'main'}`
+    : 'empty';
+
   return (
     <div
-      className="flex flex-col items-center justify-center min-h-[calc(100vh-80px)] px-6"
+      className="focus-grid min-h-[calc(100vh-80px)]"
       style={{ background: '#F4FAF4' }}
     >
-      {/* Demo button */}
-      <button
-        onClick={handleDemoEndSession}
-        className="fixed bottom-6 right-6 px-3 py-2 rounded-lg text-xs font-medium z-30 transition-all"
-        style={{ background: 'rgba(95, 175, 110, 0.15)', color: '#5FAF6E' }}
-      >
-        ⏩ Kết thúc phiên (demo)
-      </button>
+      {/* CỘT TRÁI (60%) - TRỰC QUAN HÓA ĐỒNG HỒ */}
+      <div className="flex flex-col items-center justify-center p-6 relative lg:border-r border-[#D9E6D9]">
+        {/* Demo button */}
+        <button
+          onClick={handleDemoEndSession}
+          className="absolute bottom-6 left-6 px-3 py-2 rounded-lg text-xs font-medium z-30 transition-all"
+          style={{ background: 'rgba(95, 175, 110, 0.15)', color: '#5FAF6E' }}
+        >
+          ⏩ Kết thúc phiên (demo)
+        </button>
 
-      {/* Unit selector */}
-<div className="mb-4">
-  <UnitSelector
-    selectedUnit={selectedUnit}
-    onSelect={setSelectedUnit}
-    units={units}
-    disabled={status !== 'idle'}
-  />
-</div>
-
-      {/* Tiến độ của task/subtask đang chọn */}
-      {selectedUnit && (
-        <div className="text-center mb-6">
-          <p
-            className="text-sm font-semibold"
-            style={{ color: '#243024' }}
-          >
-            {selectedUnit.completedMinutes}/
-            {selectedUnit.estimatedMinutes} phút
-          </p>
-
-          <p
-            className="text-xs mt-1"
-            style={{ color: '#5F6E5F' }}
-          >
-            Còn {selectedUnit.remainingMinutes} phút ·{' '}
-            {selectedUnit.remainingSessions} phiên
-          </p>
-        </div>
-      )}
-      {/* Timer display */}
-      <div className="relative mb-8">
-        <ProgressRing
-          value={progress}
-          size={320}
-          strokeWidth={12}
-          color="#5FAF6E"
-          trackColor="#DDF3DF"
-          showValue={false}
-        />
-
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span
-            className="font-black tabular-nums"
-            style={{ fontSize: 72, color: '#243024', letterSpacing: '-0.02em' }}
-          >
-            {formatTime(timeRemaining)}
-          </span>
-          <span className="text-sm font-medium mt-2" style={{ color: '#5F6E5F' }}>
-            {status === 'idle' ? 'Sẵn sàng' : getPhaseLabel()}
-          </span>
-        </div>
-      </div>
-
-      {/* Tiến độ số phiên thực tế của unit */}
-    {selectedUnit &&
-      selectedUnit.totalSessions <= 12 && (
-        <div className="mb-10">
-          <p
-            className="text-xs text-center mb-2"
-            style={{ color: '#5F6E5F' }}
-          >
-            Tiến độ phiên của công việc
-          </p>
-
-          <div className="flex items-center justify-center gap-2 flex-wrap max-w-sm">
-            {Array.from({
-              length: selectedUnit.totalSessions,
-            }).map((_, index) => {
-              const isCompleted =
-                index <
-                selectedUnit.completedSessions;
-
-              return (
-                <div
-                  key={index}
-                  className="rounded-full transition-all"
-                  title={`Phiên ${index + 1}/${
-                    selectedUnit.totalSessions
-                  }`}
-                  style={{
-                    width: 12,
-                    height: 12,
-                    background: isCompleted
-                      ? '#5FAF6E'
-                      : '#E8F5E8',
-                    border: isCompleted
-                      ? 'none'
-                      : '1px solid #5FAF6E',
-                  }}
-                />
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-    {/* Unit có quá nhiều phiên thì dùng progress bar */}
-    {selectedUnit &&
-      selectedUnit.totalSessions > 12 && (
-        <div className="w-64 mb-10">
-          <div
-            className="h-2 rounded-full overflow-hidden"
-            style={{ background: '#E8F5E8' }}
-          >
-            <div
-              className="h-full rounded-full"
-              style={{
-                background: '#5FAF6E',
-                width: `${Math.min(
-                  100,
-                  Math.max(
-                    0,
-                    selectedUnit.progressPercent,
-                  ),
-                )}%`,
-              }}
+        {/* Progress labels & indicators */}
+        {selectedUnit && (
+          <div className="text-center mb-6">
+            <p className="text-xs font-medium mb-2" style={{ color: '#5F6E5F' }}>
+              Còn {selectedUnit.remainingMinutes} phút · {selectedUnit.remainingSessions} phiên
+            </p>
+            <TomatoProgress
+              completedSessions={selectedUnit.completedSessions}
+              totalSessions={selectedUnit.totalSessions}
+              isRunning={status === 'running' && phase === 'focus'}
             />
           </div>
+        )}
 
-          <p
-            className="text-xs text-center mt-2"
-            style={{ color: '#5F6E5F' }}
-          >
-            {selectedUnit.completedSessions}/
-            {selectedUnit.totalSessions} phiên
-          </p>
+        {/* Timer display */}
+        <div className="relative mb-8">
+          <ProgressRing
+            value={progress}
+            size={320}
+            strokeWidth={12}
+            color="#5FAF6E"
+            trackColor="#DDF3DF"
+            showValue={false}
+          />
+
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span
+              className="font-black tabular-nums"
+              style={{ fontSize: 72, color: '#243024', letterSpacing: '-0.02em' }}
+            >
+              {formatTime(timeRemaining)}
+            </span>
+            <span className="text-sm font-medium mt-2" style={{ color: '#5F6E5F' }}>
+              {status === 'idle' ? 'Sẵn sàng' : getPhaseLabel()}
+            </span>
+          </div>
         </div>
-      )}
 
-      {/* Control buttons */}
-      <div className="flex items-center gap-4">
-        <button
-          onClick={handleCancel}
-          disabled={status === 'idle'}
-          className="flex items-center justify-center w-12 h-12 rounded-xl transition-all disabled:opacity-40"
-          style={{ border: '2px solid #E8F5E8', color: '#5F6E5F' }}
-        >
-          <X size={22} />
-        </button>
+        {/* Control buttons */}
+        <div className="flex items-center gap-4">
+          <button
+            onClick={handleCancel}
+            disabled={status === 'idle'}
+            className="flex items-center justify-center w-12 h-12 rounded-xl transition-all disabled:opacity-40"
+            style={{ border: '2px solid #E8F5E8', color: '#5F6E5F' }}
+          >
+            <X size={22} />
+          </button>
 
-        <button
-          onClick={handleStartPause}
-          className="flex items-center justify-center gap-2 px-8 py-4 rounded-xl text-base font-semibold transition-all"
-          style={{
-            background: '#5FAF6E',
-            color: '#FFFFFF',
-            borderRadius: 14,
-            boxShadow: '0 4px 16px rgba(95, 175, 110, 0.35)',
-          }}
-        >
-          {status === 'running' ? (
-            <><Pause size={22} /> Tạm dừng</>
-          ) : (
-            <><Play size={22} /> {status === 'paused' ? 'Tiếp tục' : 'Bắt đầu'}</>
-          )}
-        </button>
+          <button
+            onClick={handleStartPause}
+            className="flex items-center justify-center gap-2 px-8 py-4 rounded-xl text-base font-semibold transition-all"
+            style={{
+              background: '#5FAF6E',
+              color: '#FFFFFF',
+              borderRadius: 14,
+              boxShadow: '0 4px 16px rgba(95, 175, 110, 0.35)',
+            }}
+          >
+            {status === 'running' ? (
+              <><Pause size={22} /> Tạm dừng</>
+            ) : (
+              <><Play size={22} /> {status === 'paused' ? 'Tiếp tục' : 'Bắt đầu'}</>
+            )}
+          </button>
 
-        <button
-          onClick={handleReset}
-          disabled={status === 'idle'}
-          className="flex items-center justify-center w-12 h-12 rounded-xl transition-all disabled:opacity-40"
-          style={{ border: '2px solid #E8F5E8', color: '#5F6E5F' }}
-        >
-          <RotateCcw size={22} />
-        </button>
+          <button
+            onClick={handleReset}
+            disabled={status === 'idle'}
+            className="flex items-center justify-center w-12 h-12 rounded-xl transition-all disabled:opacity-40"
+            style={{ border: '2px solid #E8F5E8', color: '#5F6E5F' }}
+          >
+            <RotateCcw size={22} />
+          </button>
+        </div>
       </div>
 
+      {/* CỘT PHẢI (40%) - SESSION WORKSPACE */}
+      <div className="flex flex-col p-6 gap-6 max-h-[calc(100vh-80px)] overflow-y-auto custom-scrollbar">
+        {/* 3.A Task Switcher Card */}
+        <div className="relative">
+          <TaskSwitcherCard
+            selectedUnit={selectedUnit}
+            onSwitchClick={() => setShowSwitcher(!showSwitcher)}
+          />
+          <TaskSwitcherPopover
+            open={showSwitcher}
+            onClose={() => setShowSwitcher(false)}
+            onSelectUnit={handleSelectUnit}
+            onSelectSuggestion={handleSelectSuggestion}
+            currentUnit={selectedUnit}
+            units={units}
+            isRunning={status === 'running'}
+          />
+        </div>
+
+        {/* 3.B Performance Bar */}
+        <PerformanceBar
+          completedSessionsToday={completedSessionsToday}
+          totalSessionsToday={totalSessionsToday}
+          selectedUnit={selectedUnit}
+          units={units}
+        />
+
+        {/* 3.C Live Notes */}
+        <LiveNotes
+          notes={notes}
+          onSave={handleSaveNotes}
+          entityKey={activeWorkspaceKey}
+        />
+
+        {/* 3.D Attachments Block */}
+        <AttachmentsBlock
+          attachments={attachments}
+          onUpload={handleUploadAttachment}
+          onDelete={handleDeleteAttachment}
+        />
+      </div>
+
+      {/* Cancel survey modal */}
       <CancelModal open={showCancelModal} onSelect={handleCancelReasonSelect} />
+
+      {/* Break / End session overlay */}
       <SessionEndOverlay
         open={showSessionEnd}
         phase={phase}

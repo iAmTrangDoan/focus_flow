@@ -21,6 +21,17 @@ export interface SystemConfig {
   description?: string
 }
 
+export interface GeminiStatus {
+  connected: boolean
+  maskedKey: string | null
+}
+
+export interface GeminiTestSaveResult {
+  connected: boolean
+  maskedKey: string
+  message: string
+}
+
 const settingsService = {
   // ─── USER PREFERENCES ──────────────────────────────────────
 
@@ -34,6 +45,31 @@ const settingsService = {
   async updatePreferences(payload: UpdatePreferencesPayload): Promise<UserPreferences> {
     const { data } = await api.put<UserPreferences>('/preferences', payload)
     return data
+  },
+
+  // ─── GEMINI AI KEY ──────────────────────────────────────────
+
+  /** Lấy trạng thái kết nối Gemini AI */
+  async getGeminiStatus(): Promise<GeminiStatus> {
+    const { data } = await api.get<GeminiStatus>('/preferences/gemini-status')
+    return data
+  },
+
+  /**
+   * Kiểm tra Gemini API key và lưu nếu hợp lệ.
+   * @throws AxiosError với status 401 nếu key không hợp lệ
+   */
+  async testAndSaveGeminiKey(apiKey: string): Promise<GeminiTestSaveResult> {
+    const { data } = await api.post<GeminiTestSaveResult>(
+      '/preferences/gemini-key/test-save',
+      { apiKey },
+    )
+    return data
+  },
+
+  /** Gỡ bỏ Gemini API key của user */
+  async revokeGeminiKey(): Promise<void> {
+    await api.delete('/preferences/gemini-key')
   },
 
   // ─── ADMIN CONFIGS ──────────────────────────────────────────

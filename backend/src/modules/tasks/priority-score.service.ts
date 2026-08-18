@@ -60,24 +60,45 @@ export class PriorityScoreService {
             procrastinationRisk: number;
         };
     }> {
-        await this.loadWeights();
+        // Ánh xạ mức độ quan trọng do người dùng chọn sang hệ số P
+        let P = 0.2;
+        const importanceStr = String(task.importance).toUpperCase();
+        switch (importanceStr) {
+            case 'CRITICAL':
+                P = 1.0;
+                break;
+            case 'HIGH':
+                P = 0.8;
+                break;
+            case 'MEDIUM':
+                P = 0.5;
+                break;
+            case 'LOW':
+            default:
+                P = 0.2;
+                break;
+        }
 
-        const urgency = this.calcUrgency(task.deadline);
-        const importance = this.calcImportance(task.importance, task.deadline);
-        const deadlinePressure = await this.calcDeadlinePressure(task);
-        const energyFit = await this.calcEnergyFit(task.userId);
-        const procrastinationRisk = 5; // Mặc định trung lập — cần Analytics module
+        // Tính U (Mức độ khẩn cấp có kiểm soát)
+        let U = 0.0;
+        const estimateTime = task.estimatedMinutes ?? 0;
+        if (task.deadline) {
+            const T_remain = (task.deadline.getTime() - Date.now()) / (1000 * 60);
+            U = Math.min(1.0, estimateTime / Math.max(T_remain, 1.0));
+        }
 
-        const score =
-            this.w1 * urgency +
-            this.w2 * importance +
-            this.w3 * deadlinePressure +
-            this.w4 * energyFit +
-            this.w5 * procrastinationRisk;
+        // PS = 10 * (0.6 * P + 0.4 * U)
+        const score = 10 * (0.6 * P + 0.4 * U);
 
         return {
             score: Math.round(score * 100) / 100,
-            breakdown: { urgency, importance, deadlinePressure, energyFit, procrastinationRisk },
+            breakdown: {
+                urgency: Math.round(U * 10 * 100) / 100,
+                importance: Math.round(P * 10 * 100) / 100,
+                deadlinePressure: 0,
+                energyFit: 0,
+                procrastinationRisk: 0,
+            },
         };
     }
 

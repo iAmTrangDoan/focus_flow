@@ -1,11 +1,13 @@
 import {
     Controller,
     Get,
+    Query,
     UseGuards,
 } from '@nestjs/common';
 import {
     ApiBearerAuth,
     ApiOperation,
+    ApiQuery,
     ApiTags,
 } from '@nestjs/swagger';
 
@@ -28,5 +30,20 @@ export class PomodoroUnitController {
     })
     getUnits(@CurrentUser('id') userId: string) {
         return this.pomodoroService.getUnits(userId);
+    }
+
+    @Get('suggestions')
+    @ApiOperation({
+        summary: 'Gợi ý 3 task có Priority Score cao nhất chưa hoàn thành',
+    })
+    @ApiQuery({ name: 'limit', required: false, type: Number })
+    getSuggestions(
+        @CurrentUser('id') userId: string,
+        @Query('limit') limit?: string,
+    ) {
+        return this.pomodoroService.getNextSuggestions(
+            userId,
+            limit ? parseInt(limit, 10) : 3,
+        );
     }
 }

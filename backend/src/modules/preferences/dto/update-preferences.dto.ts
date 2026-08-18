@@ -1,6 +1,7 @@
 import {
     IsOptional,
     IsString,
+    IsNotEmpty,
     Matches,
     IsArray,
     ArrayMinSize,
@@ -8,7 +9,7 @@ import {
     Min,
     Max,
 } from 'class-validator';
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdatePreferencesDto {
     @ApiPropertyOptional({ example: '09:00', description: 'Giờ bắt đầu (HH:MM hoặc h:mm AM/PM)' })
@@ -33,5 +34,11 @@ export class UpdatePreferencesDto {
     @Min(1, { each: true, message: 'Giá trị ngày phải từ 1 đến 7' })
     @Max(7, { each: true, message: 'Giá trị ngày phải từ 1 đến 7' })
     workDays?: number[];
+}
 
+export class TestSaveGeminiKeyDto {
+    @ApiProperty({ example: 'AIzaSy...', description: 'Google Gemini API Key cần kiểm tra và lưu' })
+    @IsString({ message: 'apiKey phải là chuỗi ký tự' })
+    @IsNotEmpty({ message: 'apiKey không được để trống' })
+    apiKey: string;
 }

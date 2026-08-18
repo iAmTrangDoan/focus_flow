@@ -16,6 +16,7 @@ import { AiModule } from './modules/ai/ai.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { AiDemoModule } from './modules/ai-demo/ai-demo.module';
 import { ThrottlerModule, seconds } from '@nestjs/throttler';
+import { CloudinaryModule } from './common/cloudinary.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { ThrottlerModule, seconds } from '@nestjs/throttler';
       ],
     }),
     PrismaModule,
+    CloudinaryModule,
     AuthModule,
     TasksModule,
     SchedulerModule,

@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   X, Circle, Trash2, Plus, ChevronUp, ChevronDown,
-  Clock, Calendar, Timer, AlertCircle, Pencil, Check,
-  Wand2, Loader2,
+  Calendar, AlertCircle, Pencil, Check,
+   Loader2,
 } from 'lucide-react';
 import type { Task, TaskType, Importance } from '../../types';
 import tasksService from '../../services/tasks.service';
@@ -271,7 +271,7 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
   const totalCount = draft.subtasks.length;
   const pct = totalCount > 0 ? (doneCount / totalCount) * 100 : 0;
   const isDone = draft.status === 'done';
-  const scoreLabel = draft.priorityScore >= 80 ? 'Cao' : draft.priorityScore >= 50 ? 'Trung bình' : 'Thấp';
+  const scoreLabel = draft.priorityScore >= 8 ? 'Cao' : draft.priorityScore >= 5 ? 'Trung bình' : 'Thấp';
   const totalMin = draft.subtasks.reduce((s, t) => s + (Number(t.estimatedMinutes) || 0), 0);
 
   const handleSave = () => {
@@ -397,12 +397,12 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
 
           {/* Type selector */}
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: '#9CA3AF' }}>Loại</label>
-            <div className="grid grid-cols-2 gap-2">
+            <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: '#9CA3AF' }}>Loại công việc</label>
+            <div className="grid grid-cols-2 gap-2 justify-items-center">
               {([
-                { val: 'flexible' as TaskType, icon: Calendar, label: '🔄 Flexible' },
-                { val: 'fixed' as TaskType, icon: Timer, label: '⏱ Fixed' },
-              ] as const).map(({ val, icon: Icon, label }) => (
+                { val: 'flexible' as TaskType, label: 'Flexible Task' },
+                { val: 'fixed' as TaskType, label: 'Fixed Task' },
+              ] as const).map(({ val, label }) => (
                 <button
                   key={val}
                   onClick={() => setDraft((d) => d ? { ...d, type: val } : null)}
@@ -410,9 +410,7 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
                   style={draft.type === val
                     ? { background: '#F0FBF0', border: '2px solid #5FAF6E', color: '#243024' }
                     : { background: '#F9FBF9', border: '2px solid #E8F5E8', color: '#5F6E5F' }}
-                >
-                  <Icon size={15} style={{ color: draft.type === val ? '#5FAF6E' : '#9CA3AF' }} />
-                  {label}
+                >{label}
                 </button>
               ))}
             </div>
@@ -434,7 +432,6 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
                         }
                       }}
                     >
-                      <Calendar size={14} style={{ color: '#5F6E5F' }} />
                       <span className="text-sm select-none flex-1" style={{ color: '#243024' }}>
                         {formatDisplayDateTime(draft.deadline) || 'Chưa thiết lập'}
                       </span>
@@ -460,7 +457,6 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
                       className="flex items-center gap-2 px-4 py-2.5 rounded-xl"
                       style={{ background: '#F4FAF4', border: '1.5px solid #E8F5E8' }}
                     >
-                      <Clock size={14} style={{ color: '#5F6E5F' }} />
                       <input
                         type="number"
                         min="1"
@@ -494,7 +490,6 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
                         }
                       }}
                     >
-                      <Clock size={14} style={{ color: '#5FAF6E' }} />
                       <span className="text-xs font-medium w-16 shrink-0 select-none" style={{ color: '#9CA3AF' }}>Bắt đầu</span>
                       <span className="text-sm select-none flex-1" style={{ color: '#243024' }}>
                         {formatDisplayDateTime(draft.fixedTime?.split('–')[0]?.trim()) || 'Chưa thiết lập'}
@@ -524,7 +519,6 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
                         }
                       }}
                     >
-                      <Clock size={14} style={{ color: '#C1644C' }} />
                       <span className="text-xs font-medium w-16 shrink-0 select-none" style={{ color: '#9CA3AF' }}>Kết thúc</span>
                       <span className="text-sm select-none flex-1" style={{ color: '#243024' }}>
                         {formatDisplayDateTime(draft.fixedTime?.split('–')[1]?.trim()) || 'Chưa thiết lập'}
@@ -559,8 +553,10 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
             <label className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: '#9CA3AF' }}>Mức ưu tiên</label>
             <div className="flex gap-3">
               {([
+                { val: 'CRITICAL' as Importance, label: 'Critical', bg: '#FADBD8', text: '#C0392B' },
                 { val: 'HIGH' as Importance, label: 'High', bg: '#F6D8C7', text: '#C1644C' },
-                { val: 'LOW' as Importance, label: 'Low', bg: '#F7E7A8', text: '#B8860B' },
+                { val: 'MEDIUM' as Importance, label: 'Medium', bg: '#FCF3CF', text: '#D4AC0D' },
+                { val: 'LOW' as Importance, label: 'Low', bg: '#D5F5E3', text: '#27AE60' },
               ] as const).map(({ val, label, bg, text }) => (
                 <button
                   key={val}
@@ -620,7 +616,7 @@ export function TaskDetailDrawer({ task, open, onClose, onSave, onDelete }: Prop
               {aiLoading ? (
                 <><Loader2 size={16} className="animate-spin" /> AI đang gợi ý...</>
               ) : (
-                <><Wand2 size={16} /> ✨ Gợi ý công việc con bằng AI</>
+                <> Gợi ý công việc con bằng AI</>
               )}
             </button>
 

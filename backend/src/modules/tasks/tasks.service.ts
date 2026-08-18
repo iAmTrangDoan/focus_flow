@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PriorityScoreService } from './priority-score.service';
+import { CloudinaryService } from '../../common/cloudinary.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { QueryTaskDto } from './dto/query-task.dto';
@@ -20,6 +21,7 @@ export class TasksService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly priorityScoreService: PriorityScoreService,
+        private readonly cloudinaryService: CloudinaryService,
     ) { }
 
     async create(userId: string, dto: CreateTaskDto) {
@@ -677,6 +679,141 @@ export class TasksService {
         await this.prisma.subtask.delete({ where: { id: subtaskId } });
         await this.updateParentTaskEstimatedMinutes(subtask.taskId);
         return { message: 'Xóa subtask thành công' };
+    }
+
+    // ─── NOTES ─────────────────────────────────────────────────
+
+    async updateTaskNotes(userId: string, taskId: string, notes: string) {
+        await this.ensureOwnership(userId, taskId);
+        await this.prisma.task.update({
+            where: { id: taskId },
+            data: { notes },
+        });
+        return { message: 'Đã lưu ghi chú' };
+    }
+
+    async updateSubtaskNotes(userId: string, subtaskId: string, notes: string) {
+        const subtask = await this.prisma.subtask.findUnique({
+            where: { id: subtaskId },
+            include: { task: true },
+        });
+        if (!subtask) throw new NotFoundException('Subtask không tồn tại');
+        if (subtask.task.userId !== userId) throw new ForbiddenException('Không có quyền');
+
+        await this.prisma.subtask.update({
+            where: { id: subtaskId },
+            data: { notes },
+        });
+        return { message: 'Đã lưu ghi chú' };
+    }
+
+    // ─── ATTACHMENTS ───────────────────────────────────────────
+
+    async getAttachments(
+        userId: string,
+        filter: { taskId?: string; subtaskId?: string },
+    ) {
+        // Verify ownership
+        if (filter.subtaskId) {
+            const subtask = await this.prisma.subtask.findUnique({
+                where: { id: filter.subtaskId },
+                include: { task: true },
+            });
+            if (!subtask) throw new NotFoundException('Subtask không tồn tại');
+            if (subtask.task.userId !== userId) throw new ForbiddenException('Không có quyền');
+        } else if (filter.taskId) {
+            await this.ensureOwnership(userId, filter.taskId);
+        }
+
+        return this.prisma.attachment.findMany({
+            where: filter.subtaskId
+                ? { subtaskId: filter.subtaskId }
+                : { taskId: filter.taskId, subtaskId: null },
+            orderBy: { createdAt: 'desc' },
+        });
+    }
+
+    async uploadAttachment(
+        userId: string,
+        params: {
+            taskId?: string;
+            subtaskId?: string;
+            sessionId?: string;
+            file: { buffer: Buffer; originalname: string; size: number; mimetype: string };
+            maxFiles: number;
+        },
+    ) {
+        const { taskId, subtaskId, sessionId, file, maxFiles } = params;
+
+        // Resolve the actual taskId for ownership check
+        let resolvedTaskId = taskId;
+        if (subtaskId) {
+            const subtask = await this.prisma.subtask.findUnique({
+                where: { id: subtaskId },
+                include: { task: true },
+            });
+            if (!subtask) throw new NotFoundException('Subtask không tồn tại');
+            if (subtask.task.userId !== userId) throw new ForbiddenException('Không có quyền');
+            resolvedTaskId = subtask.taskId;
+        } else if (resolvedTaskId) {
+            await this.ensureOwnership(userId, resolvedTaskId);
+        }
+
+        // Check file count limit
+        const currentCount = await this.prisma.attachment.count({
+            where: subtaskId
+                ? { subtaskId }
+                : { taskId: resolvedTaskId, subtaskId: null },
+        });
+        if (currentCount >= maxFiles) {
+            throw new BadRequestException(
+                `Đã đạt giới hạn ${maxFiles} file. Xóa bớt file cũ trước khi upload thêm.`,
+            );
+        }
+
+        // Upload to Cloudinary
+        const { url } = await this.cloudinaryService.upload(file.buffer, {
+            folder: `focusflow/attachments/${resolvedTaskId}`,
+            resourceType: 'auto',
+        });
+
+        // Create DB record
+        const attachment = await this.prisma.attachment.create({
+            data: {
+                taskId: subtaskId ? null : resolvedTaskId,
+                subtaskId: subtaskId || null,
+                uploadedSessionId: sessionId || null,
+                fileName: file.originalname,
+                fileUrl: url,
+                fileSize: file.size,
+                fileType: file.mimetype,
+            },
+        });
+
+        return attachment;
+    }
+
+    async removeAttachment(userId: string, attachmentId: string) {
+        const attachment = await this.prisma.attachment.findUnique({
+            where: { id: attachmentId },
+            include: {
+                task: true,
+                subtask: { include: { task: true } },
+            },
+        });
+        if (!attachment) throw new NotFoundException('File không tồn tại');
+
+        // Check ownership
+        const ownerUserId = attachment.subtask?.task?.userId ?? attachment.task?.userId;
+        if (ownerUserId !== userId) throw new ForbiddenException('Không có quyền');
+
+        // Delete from Cloudinary
+        await this.cloudinaryService.delete(attachment.fileUrl);
+
+        // Delete DB record
+        await this.prisma.attachment.delete({ where: { id: attachmentId } });
+
+        return { message: 'Đã xóa file đính kèm' };
     }
 
     //HELPERS 

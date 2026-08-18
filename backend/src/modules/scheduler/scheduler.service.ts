@@ -100,6 +100,70 @@ interface FrozenSlotRow {
     taskTitle: string;
 }
 
+class MaxHeap<T> {
+    private heap: T[] = [];
+
+    constructor(private compare: (a: T, b: T) => number) {}
+
+    get size(): number {
+        return this.heap.length;
+    }
+
+    isEmpty(): boolean {
+        return this.heap.length === 0;
+    }
+
+    push(item: T): void {
+        this.heap.push(item);
+        this.up(this.heap.length - 1);
+    }
+
+    pop(): T | undefined {
+        if (this.isEmpty()) return undefined;
+        const top = this.heap[0];
+        const bottom = this.heap.pop();
+        if (this.heap.length > 0 && bottom !== undefined) {
+            this.heap[0] = bottom;
+            this.down(0);
+        }
+        return top;
+    }
+
+    private up(index: number): void {
+        while (index > 0) {
+            const parent = Math.floor((index - 1) / 2);
+            if (this.compare(this.heap[index], this.heap[parent]) > 0) {
+                this.swap(index, parent);
+                index = parent;
+            } else {
+                break;
+            }
+        }
+    }
+
+    private down(index: number): void {
+        const length = this.heap.length;
+        while (2 * index + 1 < length) {
+            let child = 2 * index + 1;
+            if (child + 1 < length && this.compare(this.heap[child + 1], this.heap[child]) > 0) {
+                child++;
+            }
+            if (this.compare(this.heap[child], this.heap[index]) > 0) {
+                this.swap(index, child);
+                index = child;
+            } else {
+                break;
+            }
+        }
+    }
+
+    private swap(i: number, j: number): void {
+        const temp = this.heap[i];
+        this.heap[i] = this.heap[j];
+        this.heap[j] = temp;
+    }
+}
+
 @Injectable()
 export class SchedulerService {
     private readonly logger = new Logger(SchedulerService.name);
@@ -331,8 +395,16 @@ export class SchedulerService {
 
             let flexibleTasksScheduled = 0;
 
-            // 3. Xếp Flexible tasks với cơ chế fit-duration (work+break) và auto-split khi chạm biên
+            // 3. Xếp Flexible tasks với Priority Queue Max-Heap và ràng buộc thứ tự subtasks tuần tự
+            const tasksMap = new Map<string, SchedulableTask>();
+            const taskRemainingUnits = new Map<string, WorkUnit[]>();
+            const taskUnitIndex = new Map<string, number>();
+            const scheduledMinutesMap = new Map<string, number>();
+            const unscheduledUnitsMap = new Map<string, WorkUnit[]>();
+            const totalRequiredMinutesMap = new Map<string, number>();
+
             for (const task of flexibleTasks) {
+                tasksMap.set(task.id, task);
                 const { workMinutes, breakMinutes } = this.getFocusDuration(task.focusMode);
                 const unitResult = this.buildWorkUnits(task);
                 warnings.push(...unitResult.warnings);
@@ -343,71 +415,121 @@ export class SchedulerService {
                     workMinutes,
                     breakMinutes,
                 );
-                const unscheduledUnits: WorkUnit[] = [];
-                let scheduledMinutes = 0;
 
-                for (const unit of units) {
+                taskRemainingUnits.set(task.id, units);
+                taskUnitIndex.set(task.id, 0);
+                scheduledMinutesMap.set(task.id, 0);
+                unscheduledUnitsMap.set(task.id, []);
+
+                const getOccupiedMinutes = (unit: WorkUnit) => {
                     const sessions = Math.ceil(unit.minutes / workMinutes);
-                    const totalUnitDuration = unit.minutes + sessions * breakMinutes;
+                    return unit.minutes + sessions * breakMinutes;
+                };
+                const requiredMinutes = units.reduce(
+                    (sum, unit) => sum + getOccupiedMinutes(unit),
+                    0,
+                );
+                totalRequiredMinutesMap.set(task.id, requiredMinutes);
+            }
 
-                    let remainingMinutes = totalUnitDuration;
+            const pq = new MaxHeap<WorkUnit>((a, b) => this.compareUnits(a, b, now, tasksMap));
 
-                    while (remainingMinutes > 0) {
-                        const minMinutes = workMinutes + breakMinutes;
-                        const placement = this.allocateUnit(
-                            freeSegments,
-                            remainingMinutes,
-                            minMinutes,
-                            timezone,
-                            energyFit.scores,
-                            task.deadline,
-                        );
+            for (const task of flexibleTasks) {
+                const units = taskRemainingUnits.get(task.id) || [];
+                if (units.length > 0) {
+                    pq.push(units[0]);
+                }
+            }
 
-                        if (!placement) {
-                            unscheduledUnits.push({
-                                ...unit,
-                                minutes: remainingMinutes,
-                            });
-                            break;
-                        }
+            while (!pq.isEmpty()) {
+                const currentUnit = pq.pop()!;
+                const taskId = currentUnit.taskId;
+                const task = tasksMap.get(taskId)!;
+                const { workMinutes, breakMinutes } = this.getFocusDuration(task.focusMode);
 
-                        plannedSlots.push({
-                            userId,
-                            taskId: task.id,
-                            subtaskId: unit.subtaskId,
-                            startAt: placement.startAt,
-                            endAt: placement.endAt,
-                            isManual: false,
-                            status: SlotStatus.SCHEDULED,
-                            restructureStrategy: RestructureStrategy.NONE,
-                            logicalDate: new Date(placement.dayKey + 'T00:00:00.000Z'),
-                        });
+                const sessions = Math.ceil(currentUnit.minutes / workMinutes);
+                const totalUnitDuration = currentUnit.minutes + sessions * breakMinutes;
 
-                        const durationFit = Math.round(
-                            (placement.endAt.getTime() - placement.startAt.getTime()) / 60_000,
-                        );
-                        remainingMinutes -= durationFit;
-                        scheduledMinutes += durationFit;
+                let remainingMinutes = totalUnitDuration;
+
+                while (remainingMinutes > 0) {
+                    const minMinutes = workMinutes + breakMinutes;
+                    const placement = this.allocateUnit(
+                        freeSegments,
+                        remainingMinutes,
+                        minMinutes,
+                        timezone,
+                        energyFit.scores,
+                        task.deadline,
+                    );
+
+                    if (!placement) {
+                        break;
                     }
+
+                    plannedSlots.push({
+                        userId,
+                        taskId: task.id,
+                        subtaskId: currentUnit.subtaskId,
+                        startAt: placement.startAt,
+                        endAt: placement.endAt,
+                        isManual: false,
+                        status: SlotStatus.SCHEDULED,
+                        restructureStrategy: RestructureStrategy.NONE,
+                        logicalDate: new Date(placement.dayKey + 'T00:00:00.000Z'),
+                    });
+
+                    const durationFit = Math.round(
+                        (placement.endAt.getTime() - placement.startAt.getTime()) / 60_000,
+                    );
+                    remainingMinutes -= durationFit;
+                    scheduledMinutesMap.set(taskId, (scheduledMinutesMap.get(taskId) || 0) + durationFit);
                 }
 
+                if (remainingMinutes <= 0) {
+                    const nextIndex = taskUnitIndex.get(taskId)! + 1;
+                    taskUnitIndex.set(taskId, nextIndex);
+                    const units = taskRemainingUnits.get(taskId)!;
+                    if (nextIndex < units.length) {
+                        pq.push(units[nextIndex]);
+                    }
+                } else {
+                    // Overflow occurred
+                    const workFraction = workMinutes / (workMinutes + breakMinutes);
+                    const remainingWorkMinutes = Math.round(remainingMinutes * workFraction);
+                    if (remainingWorkMinutes > 0) {
+                        unscheduledUnitsMap.get(taskId)!.push({
+                            ...currentUnit,
+                            minutes: remainingWorkMinutes,
+                        });
+                    }
+
+                    const nextIndex = taskUnitIndex.get(taskId)! + 1;
+                    const units = taskRemainingUnits.get(taskId)!;
+                    for (let i = nextIndex; i < units.length; i++) {
+                        unscheduledUnitsMap.get(taskId)!.push(units[i]);
+                    }
+                }
+            }
+
+            for (const task of flexibleTasks) {
+                const scheduledMinutes = scheduledMinutesMap.get(task.id) || 0;
                 if (scheduledMinutes > 0) {
                     flexibleTasksScheduled++;
                 }
 
+                const unscheduledUnits = unscheduledUnitsMap.get(task.id) || [];
                 if (unscheduledUnits.length > 0) {
+                    const { workMinutes, breakMinutes } = this.getFocusDuration(task.focusMode);
                     const getOccupiedMinutes = (unit: WorkUnit) => {
                         const sessions = Math.ceil(unit.minutes / workMinutes);
                         return unit.minutes + sessions * breakMinutes;
                     };
-                    const requiredMinutes = units.reduce(
-                        (sum, unit) => sum + getOccupiedMinutes(unit),
-                        0,
-                    );
                     const remainingMinutes = unscheduledUnits.reduce(
                         (sum, unit) => sum + getOccupiedMinutes(unit),
                         0,
                     );
+                    const requiredMinutes = totalRequiredMinutesMap.get(task.id) || 0;
 
                     overflow.push({
                         taskId: task.id,
@@ -442,7 +564,16 @@ export class SchedulerService {
                 await tx.scheduleSlot.deleteMany({
                     where: {
                         userId,
+                        isCompleted: false,
+                        status: SlotStatus.FROZEN_OVERDUE,
+                    },
+                });
+
+                await tx.scheduleSlot.deleteMany({
+                    where: {
+                        userId,
                         isManual: false,
+                        isCompleted: false,
                         status: SlotStatus.SCHEDULED,
                         startAt: { gte: planningStart },
                         logicalDate: {
@@ -525,68 +656,64 @@ export class SchedulerService {
     async detectOverdueSlots(): Promise<{ frozenCount: number }> {
         const now = new Date();
 
-        const frozenSlots = await this.prisma.$transaction(async (tx) => {
-            const rows = await tx.$queryRaw<FrozenSlotRow[]>(Prisma.sql`
-                WITH frozen AS (
-                    UPDATE "schedule_slots" AS ss
-                    SET
-                        "status" = 'FROZEN_OVERDUE',
-                        "updated_at" = NOW()
-                    WHERE ss."status" = 'SCHEDULED'
-                      AND ss."is_completed" = FALSE
-                      AND ss."start_at" < NOW()
-                      AND NOT EXISTS (
-                          SELECT 1
-                          FROM "pomodoro_sessions" AS ps
-                          WHERE ps."schedule_slot_id" = ss."id"
-                      )
-                    RETURNING
-                        ss."id",
-                        ss."user_id",
-                        ss."task_id",
-                        ss."subtask_id",
-                        ss."start_at",
-                        ss."end_at"
-                )
-                SELECT
-                    f."id" AS "id",
-                    f."user_id" AS "userId",
-                    f."task_id" AS "taskId",
-                    f."subtask_id" AS "subtaskId",
-                    f."start_at" AS "startAt",
-                    f."end_at" AS "endAt",
-                    t."title" AS "taskTitle"
-                FROM frozen AS f
-                JOIN "tasks" AS t ON t."id" = f."task_id"
-            `);
+        const rows = await this.prisma.$queryRaw<FrozenSlotRow[]>(Prisma.sql`
+            WITH frozen AS (
+                UPDATE "schedule_slots" AS ss
+                SET
+                    "status" = 'FROZEN_OVERDUE',
+                    "updated_at" = NOW()
+                WHERE ss."status" = 'SCHEDULED'
+                  AND ss."is_completed" = FALSE
+                  AND ss."start_at" < NOW()
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM "pomodoro_sessions" AS ps
+                      WHERE ps."schedule_slot_id" = ss."id"
+                  )
+                RETURNING
+                    ss."id",
+                    ss."user_id",
+                    ss."task_id",
+                    ss."subtask_id",
+                    ss."start_at",
+                    ss."end_at"
+            )
+            SELECT
+                f."id" AS "id",
+                f."user_id" AS "userId",
+                f."task_id" AS "taskId",
+                f."subtask_id" AS "subtaskId",
+                f."start_at" AS "startAt",
+                f."end_at" AS "endAt",
+                t."title" AS "taskTitle"
+            FROM frozen AS f
+            JOIN "tasks" AS t ON t."id" = f."task_id"
+        `);
 
-            if (rows.length > 0) {
-                await tx.behaviorLog.createMany({
-                    data: rows.map((slot) => ({
-                        userId: slot.userId,
-                        taskId: slot.taskId,
-                        eventType: EventType.TASK_DELAYED,
-                        scheduledTime: slot.startAt,
-                        delayMinutes: Math.max(
-                            0,
-                            Math.floor((now.getTime() - slot.startAt.getTime()) / 60_000),
-                        ),
-                        occurredAt: now,
-                        dedupeKey: `slot-overdue:${slot.id}`,
-                        metadata: {
-                            source: 'OVERDUE_SLOT_CRON',
-                            scheduleSlotId: slot.id,
-                            subtaskId: slot.subtaskId,
-                        } as Prisma.InputJsonValue,
-                    })),
-                    skipDuplicates: true,
-                });
-            }
+        if (rows.length > 0) {
+            await this.prisma.behaviorLog.createMany({
+                data: rows.map((slot) => ({
+                    userId: slot.userId,
+                    taskId: slot.taskId,
+                    eventType: EventType.TASK_DELAYED,
+                    scheduledTime: slot.startAt,
+                    delayMinutes: Math.max(
+                        0,
+                        Math.floor((now.getTime() - slot.startAt.getTime()) / 60_000),
+                    ),
+                    occurredAt: now,
+                    dedupeKey: `slot-overdue:${slot.id}`,
+                    metadata: {
+                        source: 'OVERDUE_SLOT_CRON',
+                        scheduleSlotId: slot.id,
+                        subtaskId: slot.subtaskId,
+                    } as Prisma.InputJsonValue,
+                })),
+                skipDuplicates: true,
+            });
+        }
 
-            return rows;
-        }, {
-            timeout: 15000,
-        });
+        const frozenSlots = rows;
 
         if (frozenSlots.length === 0) {
             return { frozenCount: 0 };
@@ -822,6 +949,53 @@ export class SchedulerService {
             );
         }
 
+        // Kiểm tra ràng buộc thứ tự thực hiện của subtask
+        if (slot.subtaskId && slot.subtask) {
+            const subtasks = await this.prisma.subtask.findMany({
+                where: { taskId: slot.taskId },
+                orderBy: { sortOrder: 'asc' },
+            });
+
+            const currentIndex = subtasks.findIndex((s) => s.id === slot.subtaskId);
+
+            if (currentIndex !== -1) {
+                const otherSlots = await this.prisma.scheduleSlot.findMany({
+                    where: {
+                        taskId: slot.taskId,
+                        id: { not: slotId },
+                        status: { not: SlotStatus.FROZEN_OVERDUE },
+                    },
+                    include: { subtask: true },
+                });
+
+                // Các subtask phía trước (phải kết thúc trước khi subtask hiện tại bắt đầu)
+                const predecessors = subtasks.slice(0, currentIndex);
+                for (const pred of predecessors) {
+                    const predSlots = otherSlots.filter((os) => os.subtaskId === pred.id);
+                    for (const predSlot of predSlots) {
+                        if (newStart.getTime() < predSlot.endAt.getTime()) {
+                            throw new BadRequestException(
+                                `Subtask '${slot.subtask.title}' không được thực hiện trước subtask '${pred.title}'.`,
+                            );
+                        }
+                    }
+                }
+
+                // Các subtask phía sau (phải bắt đầu sau khi subtask hiện tại kết thúc)
+                const successors = subtasks.slice(currentIndex + 1);
+                for (const succ of successors) {
+                    const succSlots = otherSlots.filter((os) => os.subtaskId === succ.id);
+                    for (const succSlot of succSlots) {
+                        if (newEnd.getTime() > succSlot.startAt.getTime()) {
+                            throw new BadRequestException(
+                                `'${slot.subtask.title}' không được thực hiện sau '${succ.title}'.`,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         const conflict = await this.prisma.scheduleSlot.findFirst({
             where: {
                 userId,
@@ -983,6 +1157,53 @@ export class SchedulerService {
         if (aDeadline !== bDeadline) return aDeadline - bDeadline;
 
         return a.createdAt.getTime() - b.createdAt.getTime();
+    }
+
+    private compareUnits(
+        a: WorkUnit,
+        b: WorkUnit,
+        now: Date,
+        tasksMap: Map<string, SchedulableTask>,
+    ): number {
+        const taskA = tasksMap.get(a.taskId);
+        const taskB = tasksMap.get(b.taskId);
+
+        if (!taskA) return -1;
+        if (!taskB) return 1;
+
+        // 1. Overdue
+        const aOverdue = Boolean(taskA.deadline && taskA.deadline < now);
+        const bOverdue = Boolean(taskB.deadline && taskB.deadline < now);
+        if (aOverdue !== bOverdue) {
+            return aOverdue ? 1 : -1;
+        }
+
+        // 2. Priority Score of parent task
+        if (Math.abs(taskA.priorityScore - taskB.priorityScore) > 0.0001) {
+            return taskA.priorityScore > taskB.priorityScore ? 1 : -1;
+        }
+
+        // 3. Deadline
+        const aDeadline = taskA.deadline?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        const bDeadline = taskB.deadline?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        if (aDeadline !== bDeadline) {
+            return aDeadline < bDeadline ? 1 : -1;
+        }
+
+        // 4. CreatedAt
+        const aCreated = taskA.createdAt.getTime();
+        const bCreated = taskB.createdAt.getTime();
+        if (aCreated !== bCreated) {
+            return aCreated < bCreated ? 1 : -1;
+        }
+
+        // 5. sortOrder
+        if (a.sortOrder !== b.sortOrder) {
+            return a.sortOrder < b.sortOrder ? 1 : -1;
+        }
+
+        // 6. Deterministic tie-break
+        return a.taskId < b.taskId ? 1 : -1;
     }
 
     // ─── WORK UNITS ────────────────────────────────────────────

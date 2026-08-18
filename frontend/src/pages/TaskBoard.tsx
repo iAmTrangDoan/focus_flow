@@ -13,7 +13,7 @@ import {
 import { CreateTaskDrawer, type NewTaskData } from '../components/common/CreateTaskDrawer';
 import { TaskDetailDrawer } from '../components/common/TaskDetailDrawer';
 import tasksService from '../services/tasks.service';
-import type { Task, TaskStatus } from '../types';
+import type { Task, TaskStatus, Importance } from '../types';
 import type { ToastMessage } from '../components/common/Toast';
 
 /*Format date  dd/mm/yyyy, HH:mm */
@@ -36,9 +36,11 @@ function formatDateTime(value: string | undefined | null): string {
 }
 
 /* Priority badge config */
-const priorityBadge = {
+const priorityBadge: Record<Importance, { bg: string; text: string; label: string }> = {
+  CRITICAL: { bg: '#FADBD8', text: '#C0392B', label: 'Critical' },
   HIGH: { bg: '#F6D8C7', text: '#C1644C', label: 'High' },
-  LOW: { bg: '#F7E7A8', text: '#B8860B', label: 'Low' },
+  MEDIUM: { bg: '#FCF3CF', text: '#D4AC0D', label: 'Medium' },
+  LOW: { bg: '#D5F5E3', text: '#27AE60', label: 'Low' },
 };
 
 /* ─── Status filter config ─── */

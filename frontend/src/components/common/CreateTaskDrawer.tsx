@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  X, Wand2, Loader2, Plus, Trash2, Clock, Calendar,
-  ChevronUp, ChevronDown, Timer, AlertCircle,
+  X, Loader2, Plus, Trash2, Clock, Calendar,
+  ChevronUp, ChevronDown, AlertCircle,
 } from 'lucide-react';
 import type { TaskType, Importance, Subtask } from '../../types';
 import tasksService from '../../services/tasks.service';
@@ -160,9 +160,8 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
         return newStart < slotEnd && newEnd > slotStart;
       });
 
-      const conflictTitle = conflictSlot.unit.title ?? conflictSlot.subtask.title ?? conflictSlot.task.title ?? ' công việc khác '
-
       if (conflictSlot) {
+        const conflictTitle = conflictSlot.unit?.title ?? conflictSlot.subtask?.title ?? conflictSlot.task?.title ?? ' công việc khác ';
         const pad = (n: number) => String(n).padStart(2, '0');
         const fmtDT = (iso: string) => {
           const d = new Date(iso);
@@ -336,7 +335,6 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
         <div className="flex items-center justify-between px-6 py-5 shrink-0" style={{ borderBottom: '1px solid #F0F7F0' }}>
           <div>
             <h2 className="text-lg font-bold" style={{ color: '#243024' }}>Tạo công việc mới</h2>
-            <p className="text-xs mt-0.5" style={{ color: '#9CA3AF' }}>Điền thông tin để AI sắp xếp lịch tối ưu</p>
           </div>
           <button
             onClick={handleClose}
@@ -375,9 +373,9 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
             </label>
             <div className="grid grid-cols-2 gap-3">
               {([
-                { val: 'flexible' as TaskType, icon: Calendar, title: 'Flexible Task', desc: 'Có deadline linh hoạt, AI tự xếp lịch' },
-                { val: 'fixed' as TaskType, icon: Timer, title: 'Fixed Event', desc: 'Lịch cố định, không thay đổi được' },
-              ] as const).map(({ val, icon: Icon, title: t, desc }) => (
+                { val: 'flexible' as TaskType, title: 'Flexible Task', desc: 'Công việc cần sắp xếp lịch' },
+                { val: 'fixed' as TaskType, title: 'Fixed Task', desc: 'Sự kiện cố định' },
+              ] as const).map(({ val, title: t, desc }) => (
                 <button
                   key={val}
                   onClick={() => setType(val)}
@@ -387,12 +385,6 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
                     border: type === val ? '2px solid #5FAF6E' : '2px solid #E8F5E8',
                   }}
                 >
-                  <div
-                    className="flex items-center justify-center rounded-xl"
-                    style={{ width: 36, height: 36, background: type === val ? '#DDF3DF' : '#F0F0F0' }}
-                  >
-                    <Icon size={18} style={{ color: type === val ? '#5FAF6E' : '#9CA3AF' }} />
-                  </div>
                   <span className="text-sm font-semibold" style={{ color: type === val ? '#243024' : '#5F6E5F' }}>{t}</span>
                   <span className="text-xs leading-relaxed" style={{ color: '#9CA3AF' }}>{desc}</span>
                 </button>
@@ -428,7 +420,6 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
                         }
                       }}
                     >
-                      <Calendar size={15} style={{ color: '#5F6E5F' }} />
                       <span className="text-sm select-none flex-1" style={{ color: '#243024' }}>
                         {formatDisplayDateTime(deadline) || 'Chưa thiết lập'}
                       </span>
@@ -455,7 +446,6 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
                       className="flex items-center gap-2 px-4 py-2.5 rounded-xl"
                       style={{ background: '#F4FAF4', border: '1.5px solid #E8F5E8' }}
                     >
-                      <Clock size={15} style={{ color: '#5F6E5F' }} />
                       <input
                         type="number"
                         min="1"
@@ -488,7 +478,6 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
                         }
                       }}
                     >
-                      <Calendar size={15} style={{ color: '#5F6E5F' }} />
                       <span className="text-sm select-none flex-1" style={{ color: '#243024' }}>
                         {formatDisplayDate(date) || 'Chưa thiết lập'}
                       </span>
@@ -566,9 +555,10 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
             </label>
             <div className="flex gap-3">
               {([
+                { val: 'CRITICAL' as Importance, label: 'Critical', bg: '#FADBD8', text: '#C0392B' },
                 { val: 'HIGH' as Importance, label: 'High', bg: '#F6D8C7', text: '#C1644C' },
-                { val: 'MEDIUM' as Importance, label: 'Medium', bg: '#F7E7A8', text: '#B8860B' },
-                { val: 'LOW' as Importance, label: 'Low', bg: '#F7E7A8', text: '#B8860B' },
+                { val: 'MEDIUM' as Importance, label: 'Medium', bg: '#FCF3CF', text: '#D4AC0D' },
+                { val: 'LOW' as Importance, label: 'Low', bg: '#D5F5E3', text: '#27AE60' },
               ] as const).map(({ val, label, bg, text }) => (
                 <button
                   key={val}
@@ -608,7 +598,7 @@ export function CreateTaskDrawer({ open, onClose, onSave }: Props) {
               {aiLoading ? (
                 <><Loader2 size={16} className="animate-spin" /> AI đang phân tích và gợi ý công việc con...</>
               ) : (
-                <><Wand2 size={16} /> ✨ AI phân rã công việc tự động</>
+                <> AI hỗ trợ phân rã công việc</>
               )}
             </button>
 

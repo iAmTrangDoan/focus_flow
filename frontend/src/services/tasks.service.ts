@@ -63,17 +63,19 @@ function mapTaskFromApi(raw: any): Task {
     type: raw.isFixedTask ? 'fixed' : 'flexible',
     importance: raw.importance ?? 'LOW',
     status: mapStatus(raw.status),
-    priorityScore: raw.priorityScore ?? 50,
+    priorityScore: raw.priorityScore ?? 5,
     estimatedMinutes: raw.estimatedMinutes ?? undefined,
     deadline: raw.deadline ?? undefined,
     fixedTime: raw.fixedStart && raw.fixedEnd
       ? `${raw.fixedStart}–${raw.fixedEnd}`
       : undefined,
+    notes: raw.notes ?? undefined,
     subtasks: (raw.subtasks ?? []).map((s: any) => ({
       id: String(s.id),
       title: s.title,
       done: s.isCompleted ?? false,
       estimatedMinutes: s.estimatedMinutes ?? 15,
+      notes: s.notes ?? undefined,
     })),
   }
 }
@@ -83,6 +85,12 @@ const tasksService = {
   async getTasks(params?: { status?: string; sort?: string; isFixedTask?: boolean }): Promise<Task[]> {
     const { data } = await api.get<any[]>('/tasks', { params })
     return data.map(mapTaskFromApi)
+  },
+
+  /** Lấy chi tiết 1 task */
+  async getTask(id: string): Promise<Task> {
+    const { data } = await api.get<any>(`/tasks/${id}`)
+    return mapTaskFromApi(data)
   },
 
   /** Tạo task mới */

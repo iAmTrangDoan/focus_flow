@@ -231,6 +231,46 @@ export class PomodoroService {
      * - Progress chỉ tính từ WORK session có trạng thái COMPLETED.
      * - Trả về schedule slot gần nhất nếu có.
      */
+    /**
+     * Gợi ý N task có Priority Score cao nhất chưa hoàn thành.
+     * Phục vụ nhóm "Gợi ý tiếp theo" trong popover đổi việc.
+     */
+    async getNextSuggestions(userId: string, limit = 3) {
+        const tasks = await this.prisma.task.findMany({
+            where: {
+                userId,
+                status: { in: ['TODO', 'IN_PROGRESS'] },
+            },
+            orderBy: { priorityScore: 'desc' },
+            take: limit,
+            select: {
+                id: true,
+                title: true,
+                importance: true,
+                priorityScore: true,
+                estimatedMinutes: true,
+                subtasks: {
+                    select: {
+                        id: true,
+                        title: true,
+                        estimatedMinutes: true,
+                        isCompleted: true,
+                    },
+                    orderBy: { sortOrder: 'asc' },
+                },
+            },
+        });
+
+        return tasks.map((task) => ({
+            taskId: task.id,
+            title: task.title,
+            importance: task.importance,
+            priorityScore: task.priorityScore,
+            estimatedMinutes: task.estimatedMinutes,
+            subtasks: task.subtasks,
+        }));
+    }
+
     async getUnits(userId: string) {
         const tasks = await this.prisma.task.findMany({
             where: {

@@ -88,6 +88,7 @@
 
 
 import api from './api'
+import type { Importance } from '../types'
 
 export type PomodoroStatus =
   | 'IN_PROGRESS'
@@ -117,7 +118,7 @@ export interface FocusUnit {
   taskTitle: string
   title: string
 
-  importance: 'HIGH' | 'LOW'
+  importance: Importance
   priorityScore: number
   focusMode: 'STANDARD' | 'DEEP_FOCUS'
 
@@ -203,6 +204,32 @@ export interface SessionResponse {
   session: PomodoroSession
   progress: PomodoroProgress | null
   nextAction?: string
+}
+
+export interface Attachment {
+  id: string
+  taskId: string | null
+  subtaskId: string | null
+  uploadedSessionId: string | null
+  fileName: string
+  fileUrl: string
+  fileSize: number
+  fileType: string
+  createdAt: string
+}
+
+export interface TaskSuggestion {
+  taskId: string
+  title: string
+  importance: Importance
+  priorityScore: number
+  estimatedMinutes: number | null
+  subtasks: Array<{
+    id: string
+    title: string
+    estimatedMinutes: number | null
+    isCompleted: boolean
+  }>
 }
 
 const focusService = {
@@ -305,6 +332,103 @@ const focusService = {
         details,
       },
     )
+  },
+
+  // ─── Notes (stored on Task/Subtask) ─────────────────
+
+  async updateTaskNotes(
+    taskId: string,
+    notes: string,
+  ): Promise<void> {
+    await api.patch(`/tasks/${taskId}/notes`, { notes })
+  },
+
+  async updateSubtaskNotes(
+    subtaskId: string,
+    notes: string,
+  ): Promise<void> {
+    await api.patch(`/subtasks/${subtaskId}/notes`, { notes })
+  },
+
+  // ─── Attachments (stored on Task/Subtask) ───────────
+
+  async getTaskAttachments(
+    taskId: string,
+  ): Promise<Attachment[]> {
+    const { data } = await api.get<Attachment[]>(
+      `/tasks/${taskId}/attachments`,
+    )
+    return data
+  },
+
+  async getSubtaskAttachments(
+    subtaskId: string,
+  ): Promise<Attachment[]> {
+    const { data } = await api.get<Attachment[]>(
+      `/subtasks/${subtaskId}/attachments`,
+    )
+    return data
+  },
+
+  async uploadTaskAttachment(
+    taskId: string,
+    file: File,
+    sessionId?: string,
+  ): Promise<Attachment> {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (sessionId) formData.append('sessionId', sessionId)
+
+    const { data } = await api.post<Attachment>(
+      `/tasks/${taskId}/attachments`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    )
+    return data
+  },
+
+  async uploadSubtaskAttachment(
+    subtaskId: string,
+    file: File,
+    sessionId?: string,
+  ): Promise<Attachment> {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (sessionId) formData.append('sessionId', sessionId)
+
+    const { data } = await api.post<Attachment>(
+      `/subtasks/${subtaskId}/attachments`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    )
+    return data
+  },
+
+  async deleteAttachment(
+    attachmentId: string,
+  ): Promise<void> {
+    await api.delete(`/attachments/${attachmentId}`)
+  },
+
+  async getSessions(
+    status?: PomodoroStatus,
+  ): Promise<PomodoroSession[]> {
+    const { data } = await api.get<PomodoroSession[]>('/pomodoro/sessions', {
+      params: { status },
+    })
+    return data
+  },
+
+  // ─── Task Suggestions ───────────────────────────────
+
+  async getNextSuggestions(
+    limit = 3,
+  ): Promise<TaskSuggestion[]> {
+    const { data } = await api.get<TaskSuggestion[]>(
+      '/pomodoro/units/suggestions',
+      { params: { limit } },
+    )
+    return data
   },
 }
 

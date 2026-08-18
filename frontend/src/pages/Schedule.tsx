@@ -32,6 +32,7 @@ interface ScheduleTask {
   // Overnight split: chỉ tồn tại trong bộ nhớ React, không phản ánh DB
   isOvernightSegment?: boolean     // true nếu slot này bị tách qua đêm
   segmentPart?: 'start' | 'end'   // 'start' = phần đầu ngày, 'end' = phần sang ngày tiếp
+  dragOffsetMinutes?: number       // offset in minutes from start of slot to start of segment
 }
 
 interface WeekInfo {
@@ -103,6 +104,73 @@ function getDayDifference(date: Date, weekStart: Date): number {
   return Math.round((dateDay.getTime() - weekDay.getTime()) / 86_400_000)
 }
 
+function splitTaskIntoSegments(
+  baseTask: any,
+  startAt: Date,
+  endAt: Date,
+  weekStart: Date,
+): ScheduleTask[] {
+  const MINUTES_PER_DAY = 24 * 60
+  const dayOfWeek = getDayDifference(startAt, weekStart)
+  const startMinutes = startAt.getHours() * 60 + startAt.getMinutes()
+  const totalDurationMinutes = Math.round(
+    (endAt.getTime() - startAt.getTime()) / 60_000,
+  )
+
+  const crossesMidnight = startMinutes + totalDurationMinutes > MINUTES_PER_DAY
+
+  if (!crossesMidnight) {
+    if (dayOfWeek < 0 || dayOfWeek > 6) return []
+    return [
+      {
+        ...baseTask,
+        dayOfWeek,
+        startMinutes,
+        durationMinutes: totalDurationMinutes,
+        dragOffsetMinutes: 0,
+      },
+    ]
+  }
+
+  const segments: ScheduleTask[] = []
+  let remainingMinutes = totalDurationMinutes
+  let currentDayIndex = dayOfWeek
+  let currentStartMinutes = startMinutes
+
+  while (remainingMinutes > 0 && currentDayIndex <= 6) {
+    const minutesUntilMidnight = MINUTES_PER_DAY - currentStartMinutes
+    const isFirstSegment = currentDayIndex === dayOfWeek
+    const segmentDuration = Math.min(remainingMinutes, minutesUntilMidnight)
+    const isLastSegment = segmentDuration === remainingMinutes
+    const isMultiDaySlot = totalDurationMinutes > MINUTES_PER_DAY || !isFirstSegment
+
+    if (currentDayIndex >= 0) {
+      const segmentStart = new Date(startAt.getTime() + (totalDurationMinutes - remainingMinutes) * 60_000)
+      const dragOffsetMinutes = Math.round((segmentStart.getTime() - startAt.getTime()) / 60_000)
+
+      segments.push({
+        ...baseTask,
+        dayOfWeek: currentDayIndex,
+        startMinutes: currentStartMinutes,
+        durationMinutes: segmentDuration,
+        isOvernightSegment: isMultiDaySlot || !isLastSegment,
+        segmentPart: isFirstSegment
+          ? 'start'
+          : isLastSegment
+            ? 'end'
+            : 'start',
+        dragOffsetMinutes,
+      })
+    }
+
+    remainingMinutes -= segmentDuration
+    currentDayIndex += 1
+    currentStartMinutes = 0
+  }
+
+  return segments
+}
+
 function formatTime(dateIso: string): string {
   return new Intl.DateTimeFormat('vi-VN', {
     hour: '2-digit',
@@ -157,8 +225,8 @@ function TaskBlock({
   const isOverdue = task.status === 'frozen_overdue'
   const isCompleted = task.status === 'completed'
   const isVisuallyOverdue = task.status === 'scheduled' && new Date(task.startAt).getTime() < new Date().getTime()
-  // Overnight segment không được kéo — tránh nhầm lẫn nghiệp vụ
-  const isFixed = task.type === 'fixed' || isCompleted || task.isOvernightSegment === true
+  // Cho phép kéo thả slot qua đêm (kéo cả cụm)
+  const isFixed = task.type === 'fixed' || isCompleted
   const [shaking, setShaking] = useState(false)
 
   const VISUAL_END_BREAK_MINUTES = 5;
@@ -559,7 +627,11 @@ export default function SchedulePage({ onToast }: SchedulePageProps) {
         )
 
         const priority: TaskPriority =
-          slot.task.importance === 'HIGH' ? 'high' : 'low'
+          slot.task.importance === 'CRITICAL' || slot.task.importance === 'HIGH'
+            ? 'high'
+            : slot.task.importance === 'MEDIUM'
+              ? 'medium'
+              : 'low'
         const status: TaskStatus =
           slot.status === 'FROZEN_OVERDUE'
             ? 'frozen_overdue'
@@ -595,6 +667,7 @@ export default function SchedulePage({ onToast }: SchedulePageProps) {
               dayOfWeek,
               startMinutes,
               durationMinutes: totalDurationMinutes,
+              dragOffsetMinutes: 0,
             },
           ]
         }
@@ -615,6 +688,9 @@ export default function SchedulePage({ onToast }: SchedulePageProps) {
           const isMultiDaySlot = totalDurationMinutes > MINUTES_PER_DAY || !isFirstSegment
 
           if (currentDayIndex >= 0) {
+            const segmentStart = new Date(startAt.getTime() + (totalDurationMinutes - remainingMinutes) * 60_000)
+            const dragOffsetMinutes = Math.round((segmentStart.getTime() - startAt.getTime()) / 60_000)
+
             segments.push({
               ...baseTask,
               dayOfWeek: currentDayIndex,
@@ -627,6 +703,7 @@ export default function SchedulePage({ onToast }: SchedulePageProps) {
                 : isLastSegment
                   ? 'end'
                   : 'start', // Đoạn giữa (ngày trọn vẹn) cũng dùng 'start' để hiện ▼
+              dragOffsetMinutes,
             })
           }
 
@@ -733,7 +810,7 @@ export default function SchedulePage({ onToast }: SchedulePageProps) {
     dayOfWeek: number,
   ) => {
     event.preventDefault()
-    if (!draggedTask || draggedTask.type === 'fixed' || draggedTask.isOvernightSegment === true) return
+    if (!draggedTask || draggedTask.type === 'fixed') return
 
     const rect = event.currentTarget.getBoundingClientRect()
     const relativeY = Math.max(0, Math.min(CALENDAR_HEIGHT, event.clientY - rect.top))
@@ -741,17 +818,6 @@ export default function SchedulePage({ onToast }: SchedulePageProps) {
       DAY_START_MINUTES +
       (relativeY / HALF_HOUR_HEIGHT) * HALF_HOUR_MINUTES
     const snappedMinute = Math.round(rawMinute / 5) * 5
-    
-
-
-// Làm tròn theo bước 5 phút nhưng không cho startAt đạt 24:00.
-// const snappedMinute = Math.min(
-//   DAY_END_MINUTES - 5,
-//   Math.max(
-//     DAY_START_MINUTES,
-//     Math.round(rawMinute / 5) * 5,
-//   ),
-// )
 
     const newStartAt = new Date(currentWeek.start)
     newStartAt.setDate(newStartAt.getDate() + dayOfWeek)
@@ -761,45 +827,52 @@ export default function SchedulePage({ onToast }: SchedulePageProps) {
       0,
       0,
     )
-    const newEndAt = new Date(
-      newStartAt.getTime() + draggedTask.durationMinutes * 60_000,
+
+    // Tính toán thời gian bắt đầu và kết thúc của TOÀN BỘ slot (thay vì chỉ của segment đang kéo)
+    const dragOffset = draggedTask.dragOffsetMinutes || 0
+    const slotStartAt = new Date(newStartAt.getTime() - dragOffset * 60_000)
+
+    const totalDuration = Math.round(
+      (new Date(draggedTask.endAt).getTime() - new Date(draggedTask.startAt).getTime()) / 60_000,
     )
+    const slotEndAt = new Date(slotStartAt.getTime() + totalDuration * 60_000)
 
     const previousTask = draggedTask
-    const optimisticTask: ScheduleTask = {
-      ...draggedTask,
-      dayOfWeek,
-      startMinutes: snappedMinute,
-      startAt: newStartAt.toISOString(),
-      endAt: newEndAt.toISOString(),
-      status: 'scheduled',
+    const baseTask = {
+      id: draggedTask.id,
+      taskId: draggedTask.taskId,
+      subtaskId: draggedTask.subtaskId,
+      title: draggedTask.title,
+      startAt: slotStartAt.toISOString(),
+      endAt: slotEndAt.toISOString(),
+      priority: draggedTask.priority,
+      status: draggedTask.status,
+      type: draggedTask.type,
     }
 
-    setTasks((previous) =>
-      previous.map((task) =>
-        task.id === draggedTask.id ? optimisticTask : task,
-      ),
-    )
+    const newSegments = splitTaskIntoSegments(baseTask, slotStartAt, slotEndAt, currentWeek.start)
+
+    setTasks((previous) => {
+      const filtered = previous.filter((task) => task.id !== draggedTask.id)
+      return [...filtered, ...newSegments]
+    })
     setDraggedTask(null)
 
     try {
       await schedulerService.updateSlot(
         previousTask.id,
-        newStartAt.toISOString(),
-        newEndAt.toISOString(),
+        slotStartAt.toISOString(),
+        slotEndAt.toISOString(),
       )
-    } catch {
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'Không thể lưu thay đổi vị trí. Đang hoàn tác...'
       onToast(
         createToast(
           'error',
-          'Không thể lưu thay đổi vị trí. Đang hoàn tác...',
+          msg,
         ),
       )
-      setTasks((previous) =>
-        previous.map((task) =>
-          task.id === previousTask.id ? previousTask : task,
-        ),
-      )
+      loadSlots()
     }
   }
 

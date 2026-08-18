@@ -8,6 +8,12 @@ import {
   AlertTriangle,
   Trash2,
   ChevronDown,
+  Bot,
+  Eye,
+  EyeOff,
+  Key,
+  ShieldCheck,
+  ShieldOff,
 } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Modal } from '../components/ui/Modal';
@@ -18,7 +24,7 @@ import useAuthStore from '../store/authStore';
 
 
 /* ─── Types ─── */
-type Section = 'account' | 'work-hours' | 'pomodoro' | 'notifications' | 'timezone' | 'danger';
+type Section = 'account' | 'work-hours' | 'pomodoro' | 'notifications' | 'timezone' | 'ai-assistant' | 'danger';
 
 const DAY_BUTTONS = [
   { label: 'T2', index: 1 },
@@ -61,6 +67,7 @@ function SettingsNav({ active, onSelect }: SettingsNavProps) {
     { id: 'pomodoro', icon: Timer, label: 'Pomodoro' },
     { id: 'notifications', icon: Bell, label: 'Thông báo' },
     { id: 'timezone', icon: Globe, label: 'Múi giờ & Ngôn ngữ' },
+    { id: 'ai-assistant', icon: Bot, label: 'Trợ lý AI' },
     { id: 'danger', icon: AlertTriangle, label: 'Vùng nguy hiểm' },
   ];
 
@@ -600,7 +607,7 @@ function WorkHoursSection({ onToast }: { onToast: (toast: ToastMessage) => void 
 
         {/*Ngày làm việc trong tuần*/}
         <div>
-          <h3 className="text-sm font-semibold mb-1" style={{ color: '#243024' }}>Ngày làm việc trong tuần (Working Days)</h3>
+          <h3 className="text-sm font-semibold mb-1" style={{ color: '#243024' }}>Ngày làm việc trong tuần</h3>
           <p className="text-xs mb-4" style={{ color: '#5F6E5F' }}>Chọn các ngày bạn hoạt động làm việc. Các ngày tắt sẽ được coi là ngày nghỉ.</p>
 
           <div className="flex items-center gap-3.5 flex-wrap">
@@ -733,6 +740,231 @@ function TimezoneLanguageSection({ onToast }: { onToast: (toast: ToastMessage) =
   );
 }
 
+function AiAssistantSection({ onToast }: { onToast: (toast: ToastMessage) => void }) {
+  const [apiKey, setApiKey] = useState('');
+  const [showKey, setShowKey] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [maskedKey, setMaskedKey] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [revoking, setRevoking] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [loadingStatus, setLoadingStatus] = useState(true);
+
+  useEffect(() => {
+    settingsService.getGeminiStatus()
+      .then(({ connected: c, maskedKey: mk }) => {
+        setConnected(c);
+        setMaskedKey(mk);
+      })
+      .catch(() => { })
+      .finally(() => setLoadingStatus(false));
+  }, []);
+
+  const handleTestSave = async () => {
+    if (!apiKey.trim()) {
+      setErrorMsg('Vui lòng nhập API key trước khi kiểm tra.');
+      return;
+    }
+    setErrorMsg(null);
+    setTesting(true);
+    try {
+      const result = await settingsService.testAndSaveGeminiKey(apiKey.trim());
+      setConnected(result.connected);
+      setMaskedKey(result.maskedKey);
+      setApiKey('');
+      onToast(createToast('success', result.message));
+    } catch (err: any) {
+      const msg = err?.response?.data?.message ?? err?.message ?? 'Không thể kết nối. Thử lại sau.';
+      setErrorMsg(msg);
+      onToast(createToast('error', msg));
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleRevoke = async () => {
+    setRevoking(true);
+    try {
+      await settingsService.revokeGeminiKey();
+      setConnected(false);
+      setMaskedKey(null);
+      setApiKey('');
+      setErrorMsg(null);
+      onToast(createToast('success', 'Đã gỡ bỏ Gemini API key thành công.'));
+    } catch {
+      onToast(createToast('error', 'Không thể gỡ bỏ key. Thử lại sau.'));
+    } finally {
+      setRevoking(false);
+    }
+  };
+
+  return (
+    <Card>
+      {/* Header */}
+      <div className="px-6 pt-6 pb-4">
+        <div className="flex items-center gap-3 mb-1">
+          <div
+            className="flex items-center justify-center rounded-xl"
+            style={{ width: 44, height: 44, background: 'linear-gradient(135deg, #4285F4 0%, #34A853 100%)' }}
+          >
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold" style={{ color: '#243024' }}>Tích hợp Google Gemini AI</h2>
+            <p className="text-xs" style={{ color: '#5F6E5F' }}>Kết nối API key cá nhân để sử dụng tính năng AI</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-6 pb-6 space-y-5">
+
+        {/* Connection Status Badge */}
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium" style={{ color: '#5F6E5F' }}>Trạng thái:</span>
+          {loadingStatus ? (
+            <span className="text-xs px-3 py-1.5 rounded-full" style={{ background: '#F4FAF4', color: '#9CA3AF' }}>Đang kiểm tra...</span>
+          ) : connected ? (
+            <span
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full"
+              style={{ background: '#DDF3DF', color: '#2D7A3D', border: '1px solid #A8DDB0' }}
+            >
+              <ShieldCheck size={13} />
+              Đang hoạt động
+            </span>
+          ) : (
+            <span
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full"
+              style={{ background: '#FDF4F2', color: '#C1644C', border: '1px solid #F5D0C5' }}
+            >
+              <ShieldOff size={13} />
+              Chưa kết nối
+            </span>
+          )}
+        </div>
+
+        {/* Masked key hint khi đã kết nối */}
+        {connected && maskedKey && (
+          <div
+            className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm"
+            style={{ background: '#F4FAF4', border: '1px solid #A8DDB0' }}
+          >
+            <Key size={15} style={{ color: '#5FAF6E' }} />
+            <span style={{ color: '#243024' }}>Key hiện tại:</span>
+            <code className="font-mono text-xs" style={{ color: '#5FAF6E', letterSpacing: '0.05em' }}>{maskedKey}</code>
+          </div>
+        )}
+
+        {/* Input Area */}
+        <div>
+          <label className="block text-sm font-medium mb-2" style={{ color: '#243024' }}>
+            {connected ? 'Nhập key mới để thay thế' : 'Nhập Gemini API Key'}
+          </label>
+          <div className="relative">
+            <input
+              type={showKey ? 'text' : 'password'}
+              value={apiKey}
+              onChange={(e) => {
+                setApiKey(e.target.value);
+                if (errorMsg) setErrorMsg(null);
+              }}
+              placeholder="AIzaSy••••••••••••••••••••••••••••••"
+              className="w-full px-4 py-3 rounded-xl text-sm outline-none transition-colors pr-12 font-mono"
+              style={{
+                background: '#FFFFFF',
+                border: `1px solid ${errorMsg ? '#E53E3E' : '#E8F5E8'}`,
+                color: '#243024',
+                letterSpacing: showKey ? 'normal' : '0.08em',
+              }}
+              onFocus={(e) => {
+                if (!errorMsg) e.target.style.borderColor = '#5FAF6E';
+              }}
+              onBlur={(e) => {
+                if (!errorMsg) e.target.style.borderColor = '#E8F5E8';
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && handleTestSave()}
+            />
+            {/* Eye Toggle Button */}
+            <button
+              type="button"
+              onClick={() => setShowKey((prev) => !prev)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg transition-colors"
+              style={{ color: '#9CA3AF' }}
+              title={showKey ? 'Ẩn key' : 'Hiện key'}
+            >
+              {showKey ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
+
+          {/* Error Message */}
+          {errorMsg && (
+            <p className="mt-2 text-xs font-medium" style={{ color: '#E53E3E' }}>{errorMsg}</p>
+          )}
+
+          {/* Hint Link */}
+          <p className="mt-2.5 text-xs" style={{ color: '#9CA3AF' }}>
+            Bạn chưa có khóa API?{' '}
+            <a
+              href="https://aistudio.google.com/app/apikey"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline transition-colors"
+              style={{ color: '#5FAF6E' }}
+            >
+              Nhấn vào đây để xem hướng dẫn lấy khóa miễn phí từ Google AI Studio.
+            </a>
+          </p>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex items-center gap-3 pt-2" style={{ borderTop: '1px solid #E8F5E8' }}>
+          {/* Test & Save */}
+          <button
+            onClick={handleTestSave}
+            disabled={testing || revoking || !apiKey.trim()}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{
+              background: testing ? '#A8DDB0' : '#5FAF6E',
+              color: '#FFFFFF',
+              boxShadow: '0 2px 8px rgba(95,175,110,0.35)',
+            }}
+          >
+            {testing ? (
+              <>
+                <svg className="animate-spin" width={16} height={16} viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="50" strokeDashoffset="15" />
+                </svg>
+                Đang kiểm tra...
+              </>
+            ) : (
+              <>
+                Kiểm tra & Lưu
+              </>
+            )}
+          </button>
+
+          {/* Revoke Button — chỉ hiện khi đã kết nối */}
+          {connected && (
+            <button
+              onClick={handleRevoke}
+              disabled={revoking || testing}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                background: 'transparent',
+                color: '#C1644C',
+                border: '1px solid #F5D0C5',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = '#FDF4F2')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+            >
+              {revoking ? 'Đang gỡ...' : 'Gỡ bỏ'}
+            </button>
+          )}
+        </div>
+
+      </div>
+    </Card>
+  );
+}
+
 function DangerZoneSection({ onToast }: { onToast: (toast: ToastMessage) => void }) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [userEmail, setUserEmail] = useState('');
@@ -809,6 +1041,7 @@ export default function SettingsPage({ onToast }: SettingsPageProps) {
             {activeSection === 'pomodoro' && <PomodoroSection onToast={onToast} />}
             {activeSection === 'notifications' && <NotificationsSection onToast={onToast} />}
             {activeSection === 'timezone' && <TimezoneLanguageSection onToast={onToast} />}
+            {activeSection === 'ai-assistant' && <AiAssistantSection onToast={onToast} />}
             {activeSection === 'danger' && <DangerZoneSection onToast={onToast} />}
           </main>
         </div>

@@ -19,14 +19,15 @@ import focusService from '../services/focus.service';
 import accountService, { type ProcrastinationScoreData } from '../services/account.service';
 import analyticsService, { type OverdueSummary } from '../services/analytics.service';
 import schedulerService from '../services/scheduler.service';
+import type { Importance, TaskStatus } from '../types';
 
 /* ─── Types ─── */
 interface TaskItem {
   id: string;
   title: string;
   deadline: string;
-  importance: 'HIGH' | 'LOW';
-  status: 'todo' | 'in_progress' | 'done';
+  importance: Importance;
+  status: TaskStatus;
   score: number;
   duration: string;
 }
@@ -83,10 +84,18 @@ function formatSlotTime(dateIso: string): string {
   return `${hours}:${minutes} ${ampm}`;
 }
 
-function getPriorityStyle(p: 'HIGH' | 'LOW') {
-  return p === 'HIGH'
-    ? { bg: '#F6D8C7', text: '#C1644C', label: 'High' }
-    : { bg: '#DCECF8', text: '#4A7FB8', label: 'Low' };
+function getPriorityStyle(p: Importance) {
+  switch (p) {
+    case 'CRITICAL':
+      return { bg: '#FADBD8', text: '#C0392B', label: 'Critical' };
+    case 'HIGH':
+      return { bg: '#F6D8C7', text: '#C1644C', label: 'High' };
+    case 'MEDIUM':
+      return { bg: '#FCF3CF', text: '#D4AC0D', label: 'Medium' };
+    case 'LOW':
+    default:
+      return { bg: '#D5F5E3', text: '#27AE60', label: 'Low' };
+  }
 }
 
 

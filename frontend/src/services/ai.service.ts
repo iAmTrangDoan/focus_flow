@@ -13,6 +13,12 @@ export interface AiInsight {
       content: string
       actionType: 'reprioritize_morning' | 'reprioritize_evening' | 'shorten_tasks' | 'adjust_reminder' | 'none'
     }[]
+    insights?: {
+      category: string
+      content: string
+      actionable: boolean
+      actionType?: string
+    }[]
   }
   inputSummary?: any
   createdAt: string

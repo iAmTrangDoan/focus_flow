@@ -19,7 +19,7 @@ export class AuthService {
         private readonly prisma: PrismaService,
         private readonly jwtService: JwtService,
         private readonly configService: ConfigService,
-    ) {}
+    ) { }
 
     // ─── REGISTER ──────────────────────────────────────────────
 
@@ -152,6 +152,11 @@ export class AuthService {
     // ─── LOGOUT ────────────────────────────────────────────────
 
     async logout(userId: string, refreshToken: string) {
+
+        if (!refreshToken) {
+            throw new BadRequestException('Refresh token is required');
+        }
+
         // Revoke tất cả refresh tokens khớp của user
         const storedTokens = await this.prisma.refreshToken.findMany({
             where: {

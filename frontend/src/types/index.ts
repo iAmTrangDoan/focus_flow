@@ -27,7 +27,7 @@ export interface ApiError {
 }
 
 // ─── Task & Subtask ───
-export type Importance = 'HIGH' | 'LOW'
+export type Importance = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
 export type TaskType = 'flexible' | 'fixed'
 export type TaskStatus = 'todo' | 'in_progress' | 'done'
 
@@ -36,6 +36,7 @@ export interface Subtask {
   title: string
   done: boolean
   estimatedMinutes?: number
+  notes?: string
 }
 
 export interface Task {
@@ -49,6 +50,7 @@ export interface Task {
   deadline?: string
   fixedTime?: string
   subtasks: Subtask[]
+  notes?: string
 }
 
 // ─── Activity ───

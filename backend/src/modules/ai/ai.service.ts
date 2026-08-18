@@ -466,10 +466,13 @@ export class AiService {
     }
 
     private async callGeminiInsights(summary: any, weekStart: Date): Promise<any> {
-        const apiKey = this.configService.get<string>('GEMINI_API_KEY');
+        const apiKey = this.configService.get<string>('GEMINI_DEMO_API_KEY') || this.configService.get<string>('GEMINI_API_KEY');
         if (!apiKey) {
-            throw new HttpException('GEMINI_API_KEY chưa được cấu hình', HttpStatus.INTERNAL_SERVER_ERROR);
+            this.logger.error('API KEY chưa được cấu hình');
+            throw new InternalServerErrorException('Dịch vụ AI chưa được cấu hình');
         }
+        const model = this.configService.get<string>('GEMINI_MODEL') || 'gemini-3.5-flash-lite';
+        const url = `${this.geminiBaseURL}/${encodeURIComponent(model)}:generateContent`;
 
         const weekNum = this.getISOWeek(weekStart);
         const prompt = `Bạn là một trợ lý phân tích năng suất cá nhân thông minh và là một chuyên gia tâm lý học hành vi. 
@@ -509,13 +512,21 @@ Trả về JSON với cấu trúc chính xác sau đây (không được có mar
   "summary": "Tóm tắt tổng quan hiệu suất và tinh thần làm việc của người dùng trong tuần vừa qua ngắn gọn trong tối đa 2 câu."
 }`;
 
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-
         const response = await firstValueFrom(
-            this.httpService.post(url, {
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { temperature: 0.65, maxOutputTokens: 1024 },
-            })
+            this.httpService.post(
+                url,
+                {
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: { temperature: 0.65, maxOutputTokens: 1024 },
+                },
+                {
+                    timeout: this.requestTimeoutMs,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-goog-api-key': apiKey,
+                    },
+                }
+            )
         );
 
         const rawText: string = response.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
