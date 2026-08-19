@@ -1,4 +1,3 @@
-import type { SystemLogItem } from '../pages/admin/SystemLogs';
 import api from './api';
 
 export interface AdminDashboardData {
@@ -22,7 +21,6 @@ export interface AdminUserListItem {
   role: string;
   isActive: boolean;
   createdAt: string;
-  // Extra fields for rich frontend representation
   procrScore?: number;
   avatar?: string;
   tasksCreated?: number;
@@ -47,6 +45,32 @@ export interface SystemConfigItem {
   description?: string;
   updatedBy?: string;
   updatedAt?: string;
+}
+
+export type SystemLogCategory = 'API' | 'SCHEDULER' | 'ANALYTICS' | 'CRON' | 'AI' | 'ADMIN';
+export type SystemLogStatus = 'STARTED' | 'SUCCESS' | 'FAILED' | 'SKIPPED';
+
+export interface SystemLogItem {
+  id: string;
+  category: SystemLogCategory;
+  eventType: string;
+  status: SystemLogStatus;
+  userId?: string;
+  adminId?: string;
+  source?: string;
+  message?: string;
+  metadata?: Record<string, any>;
+  durationMs?: number;
+  errorMessage?: string;
+  createdAt: string;
+}
+
+export interface GetSystemLogsParams {
+  status?: SystemLogStatus;
+  category?: SystemLogCategory;
+  eventType?: string;
+  search?: string;
+  limit?: number;
 }
 
 const adminService = {
@@ -94,11 +118,20 @@ const adminService = {
     return data;
   },
 
-  //Nhật ký hệ thống: Dữ liệu nhật ký hiện tại được thu thập trực tiếp từ NestJS Logger và Gemini Service API
-  async getLogs(): Promise<SystemLogItem[]> {
-    const { data } = await api.get<SystemLogItem[]>('/admin/logs');
+  /** Nhật ký hệ thống — lấy từ DB thật */
+  async getSystemLogs(params?: GetSystemLogsParams): Promise<SystemLogItem[]> {
+    const { data } = await api.get<SystemLogItem[]>('/admin/system-logs', {
+      params: {
+        ...(params?.status && { status: params.status }),
+        ...(params?.category && { category: params.category }),
+        ...(params?.eventType && { eventType: params.eventType }),
+        ...(params?.search && { search: params.search }),
+        ...(params?.limit && { limit: params.limit }),
+      },
+    });
     return data;
   },
 };
 
 export default adminService;
+

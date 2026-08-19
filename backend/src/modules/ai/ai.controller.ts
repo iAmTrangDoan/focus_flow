@@ -90,8 +90,9 @@ export class AiController {
         description: 'Backend chưa cấu hình Gemini API key',
     })
     suggestSubtasks(
+        @CurrentUser('id') userId: string,
         @Body() dto: SuggestSubtasksDto,
     ): Promise<AiSubtasksResponseDto> {
-        return this.aiService.suggestSubtasks(dto);
+        return this.aiService.suggestSubtasks(userId, dto);
     }
 }

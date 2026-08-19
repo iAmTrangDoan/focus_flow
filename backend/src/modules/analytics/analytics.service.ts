@@ -4,6 +4,7 @@ import { EventType, Prisma, ProcrastinationClassification } from '@prisma/client
 import { Cron } from '@nestjs/schedule';
 import { NotificationService } from '../notification/notification.service';
 import { NotificationGateway } from '../notification/notification.gateway';
+import { SystemLogService } from '../admin/system-log.service';
 
 @Injectable()
 export class AnalyticsService {
@@ -13,6 +14,7 @@ export class AnalyticsService {
         private readonly prisma: PrismaService,
         private readonly notificationService: NotificationService,
         private readonly notificationGateway: NotificationGateway,
+        private readonly systemLogService: SystemLogService,
     ) {}
 
     // ─── PROCRASTINATION SCORE ──────────────────────────────────
@@ -50,6 +52,7 @@ export class AnalyticsService {
     // Tính toán Procrastination Score từ behavior_logs 
 
     private async calculateAndSave(userId: string, targetDate: Date) {
+        const calcStart = Date.now();
         const weights = await this.loadWeights();
 
         // Snapshot của ngày hiện tại dùng dữ liệu đến thời điểm gọi API.
@@ -226,6 +229,20 @@ export class AnalyticsService {
             },
         });
 
+        this.systemLogService.log({
+            category: 'ANALYTICS',
+            eventType: 'PROCRASTINATION_SCORE_CALCULATED',
+            status: 'SUCCESS',
+            userId,
+            durationMs: Date.now() - calcStart,
+            metadata: {
+                score: Math.round(score * 10) / 10,
+                classification,
+                calculationVersion: 1,
+                calculatedDate: targetDate.toISOString().split('T')[0],
+            },
+        });
+
         return this.formatScoreResult(saved);
     }
 
@@ -263,8 +280,21 @@ export class AnalyticsService {
      * Task vẫn giữ TODO/IN_PROGRESS; chỉ ghi DEADLINE_MISSED một lần và notify.
      */
     @Cron('30 */5 * * * *', { timeZone: 'Asia/Ho_Chi_Minh' }) //chạy giây thứ 30, mỗi 5p 1 lần
-    
     async detectMissedDeadlines(): Promise<{ detectedCount: number }> {
+        const cronName = 'detectMissedDeadlines';
+        const cronStart = Date.now();
+        await this.systemLogService.logAsync({ category: 'CRON', eventType: 'CRON_STARTED', status: 'STARTED', source: cronName });
+        try {
+            const result = await this.runDetectMissedDeadlines();
+            await this.systemLogService.logAsync({ category: 'CRON', eventType: 'CRON_COMPLETED', status: 'SUCCESS', source: cronName, durationMs: Date.now() - cronStart, metadata: { detectedCount: result.detectedCount } });
+            return result;
+        } catch (err: any) {
+            await this.systemLogService.logAsync({ category: 'CRON', eventType: 'CRON_FAILED', status: 'FAILED', source: cronName, durationMs: Date.now() - cronStart, errorMessage: err?.message });
+            throw err;
+        }
+    }
+
+    private async runDetectMissedDeadlines(): Promise<{ detectedCount: number }> {
         const now = new Date();
         const overdueTasks = await this.prisma.task.findMany({
             where: {
@@ -377,7 +407,21 @@ export class AnalyticsService {
      */
     @Cron('0 10 0 * * *', { timeZone: 'Asia/Ho_Chi_Minh' })
     async calculateDailySnapshots(): Promise<void> {
+        const cronName = 'calculateDailySnapshots';
+        const cronStart = Date.now();
+        await this.systemLogService.logAsync({ category: 'CRON', eventType: 'CRON_STARTED', status: 'STARTED', source: cronName });
+        let processedCount = 0;
+        let failedCount = 0;
+        try {
+            await this.runCalculateDailySnapshots((ok) => ok ? processedCount++ : failedCount++);
+            await this.systemLogService.logAsync({ category: 'CRON', eventType: 'CRON_COMPLETED', status: 'SUCCESS', source: cronName, durationMs: Date.now() - cronStart, metadata: { processedCount, failedCount } });
+        } catch (err: any) {
+            await this.systemLogService.logAsync({ category: 'CRON', eventType: 'CRON_FAILED', status: 'FAILED', source: cronName, durationMs: Date.now() - cronStart, errorMessage: err?.message });
+            throw err;
+        }
+    }
 
+    private async runCalculateDailySnapshots(onUserResult: (success: boolean) => void): Promise<void> {
         //tính điểm của ngày hôm trước
         const snapshotDate = new Date();
         snapshotDate.setDate(snapshotDate.getDate() - 1);
@@ -390,10 +434,7 @@ export class AnalyticsService {
 
         for (const user of users) {
             try {
-                const result = await this.calculateAndSave(
-                    user.id,
-                    snapshotDate,
-                );
+                const result = await this.calculateAndSave(user.id, snapshotDate);
 
                 this.notificationGateway.emitToUser(
                     user.id,
@@ -424,15 +465,18 @@ export class AnalyticsService {
                         },
                     );
                 }
+                onUserResult(true);
             } catch (error) {
                 this.logger.error(
                     `Daily analytics failed for user ${user.id}: ${
                         error instanceof Error ? error.message : String(error)
                     }`,
                 );
+                onUserResult(false);
             }
         }
     }
+
 
     /**
      * Dữ liệu tổng hợp để frontend hiển thị badge/dashboard quá hạn.

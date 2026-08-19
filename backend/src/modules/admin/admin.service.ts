@@ -4,6 +4,7 @@ import {
     BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SystemLogCategory, SystemLogStatus } from '@prisma/client';
 
 @Injectable()
 export class AdminService {
@@ -261,5 +262,35 @@ export class AdminService {
                 `Tổng trọng số ${groupName} phải bằng 1 (hiện tại: ${sum.toFixed(4)})`,
             );
         }
+    }
+
+    // ─── SYSTEM LOGS ──────────────────────────────────────────
+
+    async getSystemLogs(options: {
+        status?: SystemLogStatus;
+        category?: SystemLogCategory;
+        eventType?: string;
+        search?: string;
+        limit?: number;
+    }) {
+        const { status, category, eventType, search, limit = 100 } = options;
+
+        return this.prisma.systemLog.findMany({
+            where: {
+                ...(status && { status }),
+                ...(category && { category }),
+                ...(eventType && { eventType }),
+                ...(search && {
+                    OR: [
+                        { userId: { contains: search, mode: 'insensitive' } },
+                        { message: { contains: search, mode: 'insensitive' } },
+                        { eventType: { contains: search, mode: 'insensitive' } },
+                        { source: { contains: search, mode: 'insensitive' } },
+                    ],
+                }),
+            },
+            orderBy: { createdAt: 'desc' },
+            take: limit,
+        });
     }
 }

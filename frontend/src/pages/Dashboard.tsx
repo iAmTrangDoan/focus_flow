@@ -110,9 +110,11 @@ export default function Dashboard() {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [currentSessionSlotId, setCurrentSessionSlotId] = useState<string | null>(null);
   const [currentSessionTaskId, setCurrentSessionTaskId] = useState<string | null>(null);
+  const [currentSessionData, setCurrentSessionData] = useState<any | null>(null);
   const [aiBannerState] = useState<AiBannerState>('new_user');
   const [showReshuffleBanner, setShowReshuffleBanner] = useState(false);
   const [procrastScore, setProcrastScore] = useState<ProcrastinationScoreData | null>(null);
+  const [yesterdayProcrastScore, setYesterdayProcrastScore] = useState<ProcrastinationScoreData | null>(null);
   const [overdueSummary, setOverdueSummary] = useState<OverdueSummary | null>(null);
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
 
@@ -151,6 +153,7 @@ export default function Dashboard() {
     focusService.getCurrentSession()
       .then((data) => {
         if (data && data.session) {
+          setCurrentSessionData(data);
           setCurrentSessionId(data.session.id);
           setCurrentSessionSlotId(data.session.scheduleSlotId);
           setCurrentSessionTaskId(data.session.taskId);
@@ -195,6 +198,13 @@ export default function Dashboard() {
       .then(setProcrastScore)
       .catch(() => { /* Fallback to null — UI hiển 0 */ });
 
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    accountService.getProcrastinationScore(yesterdayStr)
+      .then(setYesterdayProcrastScore)
+      .catch(() => {});
+
     analyticsService.getOverdueSummary()
       .then((summary) => {
         setOverdueSummary(summary);
@@ -221,12 +231,14 @@ export default function Dashboard() {
           setCurrentSessionId(null);
           setCurrentSessionSlotId(null);
           setCurrentSessionTaskId(null);
+          setCurrentSessionData(null);
           loadTodaySlots();
         })
         .catch(() => {
           setCurrentSessionId(null);
           setCurrentSessionSlotId(null);
           setCurrentSessionTaskId(null);
+          setCurrentSessionData(null);
         });
     } else if (secondsLeft === 0) {
       setRunning(false);
@@ -241,6 +253,7 @@ export default function Dashboard() {
       setCurrentSessionId(null);
       setCurrentSessionSlotId(null);
       setCurrentSessionTaskId(null);
+      setCurrentSessionData(null);
     }
   };
 
@@ -263,6 +276,7 @@ export default function Dashboard() {
             matchingSlot ? matchingSlot.subtaskId : null,
             matchingSlot ? matchingSlot.id : null
           );
+          setCurrentSessionData(resp);
           setCurrentSessionId(resp.session.id);
           setCurrentSessionSlotId(resp.session.scheduleSlotId);
           setCurrentSessionTaskId(resp.session.taskId);
@@ -286,10 +300,14 @@ export default function Dashboard() {
   const strokeDashoffset = circumference * (secondsLeft / (25 * 60));
 
   /* Procrastination score display values */
-  const displayScore = procrastScore?.score ?? 28;
+  const displayScore = procrastScore?.score ?? 0;
   const scoreColor = displayScore <= 30 ? '#5FAF6E' : displayScore <= 60 ? '#B8860B' : '#C1644C';
   const scoreBg = displayScore <= 30 ? '#DDF3DF' : displayScore <= 60 ? '#F7E7A8' : '#F6D8C7';
   const scoreClassification = procrastScore?.classification ?? 'Tốt';
+
+  const yesterdayDisplayScore = yesterdayProcrastScore?.score ?? 0;
+  const scoreDiff = Math.abs(displayScore - yesterdayDisplayScore);
+  const isBetter = displayScore <= yesterdayDisplayScore;
 
 
 
@@ -550,7 +568,13 @@ export default function Dashboard() {
                 {selectedTask ? selectedTask.title : 'Chọn task để bắt đầu Pomodoro'}
               </h3>
               <p className="text-xs mb-3" style={{ color: '#5F6E5F' }}>
-                {selectedTask ? `${selectedTask.duration} · Hạn: ${formatDateTime(selectedTask.deadline)} · Score ${selectedTask.score}/100` : '—'}
+                {selectedTask ? (
+                  running && currentSessionData ? (
+                    `${currentSessionData.session.plannedDuration} min · Hạn: ${formatDateTime(selectedTask.deadline)} · Score ${selectedTask.score}/100`
+                  ) : (
+                    `${selectedTask.duration} · Hạn: ${formatDateTime(selectedTask.deadline)} · Score ${selectedTask.score}/100`
+                  )
+                ) : '—'}
               </p>
               <div className="flex items-center gap-3 justify-center sm:justify-start">
                 <button
@@ -628,9 +652,10 @@ export default function Dashboard() {
                 })}
               </div>
               <div className="mt-4 flex items-center gap-2 justify-center sm:justify-start">
-                <span className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ background: '#F6D8C7', color: '#C1644C' }}>Hôm qua: 32</span>
-                <span className="flex items-center gap-1 text-xs font-semibold" style={{ color: '#5FAF6E' }}>
-                  <TrendingDown size={12} /> ▼ 4 điểm tốt hơn
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ background: '#F6D8C7', color: '#C1644C' }}>Hôm qua: {Math.round(yesterdayDisplayScore)}</span>
+                <span className="flex items-center gap-1 text-xs font-semibold" style={{ color: isBetter ? '#5FAF6E' : '#C1644C' }}>
+                  <TrendingDown size={12} style={{ transform: isBetter ? 'none' : 'scaleY(-1)' }} /> 
+                  {isBetter ? `▼ ${Math.round(scoreDiff)} điểm tốt hơn` : `▲ ${Math.round(scoreDiff)} điểm tệ hơn`}
                 </span>
               </div>
             </div>

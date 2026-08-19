@@ -5,13 +5,14 @@ import {
     Param,
     Body,
     UseGuards,
+    Query,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { Role } from '@prisma/client';
+import { Role, SystemLogCategory, SystemLogStatus } from '@prisma/client';
 import { AdminService } from './admin.service';
 import { UpdateConfigDto } from './dto/update-config.dto';
 
@@ -73,6 +74,28 @@ export class AdminController {
         return this.adminService.updateConfigs(dto.configs, adminId);
     }
 
-
-
+    //SYSTEM LOGS
+    @Get('system-logs')
+    @ApiOperation({ summary: 'Nhật ký hệ thống' })
+    @ApiQuery({ name: 'status', required: false, enum: SystemLogStatus })
+    @ApiQuery({ name: 'category', required: false, enum: SystemLogCategory })
+    @ApiQuery({ name: 'eventType', required: false })
+    @ApiQuery({ name: 'search', required: false })
+    @ApiQuery({ name: 'limit', required: false, type: Number })
+    getSystemLogs(
+        @Query('status') status?: SystemLogStatus,
+        @Query('category') category?: SystemLogCategory,
+        @Query('eventType') eventType?: string,
+        @Query('search') search?: string,
+        @Query('limit') limit?: string,
+    ) {
+        return this.adminService.getSystemLogs({
+            status,
+            category,
+            eventType,
+            search,
+            limit: limit ? parseInt(limit, 10) : undefined,
+        });
+    }
 }
+

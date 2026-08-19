@@ -11,6 +11,8 @@ import focusService, {
 } from '../services/focus.service';
 import tasksService from '../services/tasks.service';
 import schedulerService from '../services/scheduler.service';
+import { usePomodoroSound } from '../hooks/usePomodoroSound';
+import { usePomodoroStore } from '../store/pomodoroStore';
 
 // Workspace Components
 import { TomatoProgress } from '../components/focus/TomatoProgress';
@@ -195,6 +197,17 @@ export default function FocusSessionsPage({ onToast }: FocusSessionsPageProps) {
   const endAtRef = useRef<number | null>(null);
   const currentSessionIdRef = useRef<string | null>(null);
   const completingRef = useRef(false);
+  const { unlockAudio, playSessionEndSound } = usePomodoroSound();
+
+  useEffect(() => {
+    if (showSessionEnd) {
+      if (phase === 'focus') {
+        playSessionEndSound('WORK');
+      } else {
+        playSessionEndSound('BREAK');
+      }
+    }
+  }, [showSessionEnd, phase, playSessionEndSound]);
 
   /* ─── Fetch notes & attachments when unit changes ─── */
   const loadWorkspaceData = useCallback(async (unit: FocusUnit | null) => {
@@ -475,6 +488,43 @@ export default function FocusSessionsPage({ onToast }: FocusSessionsPageProps) {
 
         setUnits(loadedUnits);
 
+        // -- ZUSTAND BREAK RESTORE LOGIC --
+        const { breakEndTime, breakPhase, clearBreak } = usePomodoroStore.getState();
+        if (breakEndTime && breakPhase && breakPhase !== 'focus') {
+          const now = Date.now();
+          if (now < breakEndTime) {
+            setPhase(breakPhase);
+            endAtRef.current = breakEndTime;
+            const remaining = Math.max(0, Math.ceil((breakEndTime - now) / 1000));
+            setTimeRemaining(remaining);
+            totalTimeRef.current = breakPhase === 'short_break' ? SHORT_BREAK : LONG_BREAK;
+            setStatus('running');
+          } else {
+            setPhase(breakPhase);
+            setTimeRemaining(0);
+            totalTimeRef.current = breakPhase === 'short_break' ? SHORT_BREAK : LONG_BREAK;
+            setStatus('idle');
+            setShowSessionEnd(true);
+            clearBreak();
+          }
+
+          // Restore selected unit based on url or first unit
+          const params = new URLSearchParams(window.location.search);
+          const taskId = params.get('taskId');
+          const subtaskId = params.get('subtaskId');
+          const matchedFromUrl =
+            loadedUnits.find(
+              (unit) =>
+                unit.taskId === taskId &&
+                unit.subtaskId === subtaskId,
+            ) ??
+            loadedUnits.find((unit) => unit.taskId === taskId);
+
+          setSelectedUnit(matchedFromUrl ?? loadedUnits[0] ?? null);
+          return;
+        }
+        // ---------------------------------
+
         if (currentResponse) {
           const currentSession =
             currentResponse.session;
@@ -694,6 +744,9 @@ export default function FocusSessionsPage({ onToast }: FocusSessionsPageProps) {
       setTimeRemaining(remaining);
 
       if (remaining === 0) {
+        if (phase !== 'focus') {
+          usePomodoroStore.getState().clearBreak();
+        }
         void finishCurrentTimer();
       }
     };
@@ -727,6 +780,8 @@ export default function FocusSessionsPage({ onToast }: FocusSessionsPageProps) {
   }, [status, finishCurrentTimer]);
 
   const handleStartPause = async () => {
+      void unlockAudio();
+
       if (status === 'idle') {
         // Phiên nghỉ chạy local, không tạo PomodoroSession trong backend.
         if (phase !== 'focus') {
@@ -743,6 +798,7 @@ export default function FocusSessionsPage({ onToast }: FocusSessionsPageProps) {
             totalSeconds * 1000;
 
           setStatus('running');
+          usePomodoroStore.getState().setBreak(phase, totalSeconds);
           return;
         }
 
@@ -867,6 +923,7 @@ export default function FocusSessionsPage({ onToast }: FocusSessionsPageProps) {
 
       setStatus('idle');
       setTimeRemaining(resetSeconds);
+      usePomodoroStore.getState().clearBreak();
 
       return;
     }
@@ -951,6 +1008,9 @@ export default function FocusSessionsPage({ onToast }: FocusSessionsPageProps) {
     totalTimeRef.current = resetSeconds;
 
     setTimeRemaining(resetSeconds);
+    if (phase !== 'focus') {
+      usePomodoroStore.getState().clearBreak();
+    }
   };
 
   const handleSessionEnd = () => {
@@ -985,6 +1045,7 @@ export default function FocusSessionsPage({ onToast }: FocusSessionsPageProps) {
   };
 
   const handleDemoEndSession = () => {
+    void unlockAudio();
     if (status === 'running') {
       setTimeRemaining(0);
       setStatus('idle');

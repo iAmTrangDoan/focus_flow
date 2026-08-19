@@ -60,44 +60,27 @@ export class PriorityScoreService {
             procrastinationRisk: number;
         };
     }> {
-        // Ánh xạ mức độ quan trọng do người dùng chọn sang hệ số P
-        let P = 0.2;
-        const importanceStr = String(task.importance).toUpperCase();
-        switch (importanceStr) {
-            case 'CRITICAL':
-                P = 1.0;
-                break;
-            case 'HIGH':
-                P = 0.8;
-                break;
-            case 'MEDIUM':
-                P = 0.5;
-                break;
-            case 'LOW':
-            default:
-                P = 0.2;
-                break;
-        }
+        const urgencyScore = this.calcUrgency(task.deadline);
+        const importanceScore = this.calcImportance(task.importance, task.deadline);
+        const deadlinePressureScore = await this.calcDeadlinePressure(task);
+        const energyFitScore = await this.calcEnergyFit(task.userId);
+        const procrastinationRiskScore = await this.calcProcrastinationRisk(task.userId);
 
-        // Tính U (Mức độ khẩn cấp có kiểm soát)
-        let U = 0.0;
-        const estimateTime = task.estimatedMinutes ?? 0;
-        if (task.deadline) {
-            const T_remain = (task.deadline.getTime() - Date.now()) / (1000 * 60);
-            U = Math.min(1.0, estimateTime / Math.max(T_remain, 1.0));
-        }
-
-        // PS = 10 * (0.6 * P + 0.4 * U)
-        const score = 10 * (0.6 * P + 0.4 * U);
+        const score = 
+            (this.w1 * urgencyScore) + 
+            (this.w2 * importanceScore) + 
+            (this.w3 * deadlinePressureScore) + 
+            (this.w4 * energyFitScore) + 
+            (this.w5 * procrastinationRiskScore);
 
         return {
             score: Math.round(score * 100) / 100,
             breakdown: {
-                urgency: Math.round(U * 10 * 100) / 100,
-                importance: Math.round(P * 10 * 100) / 100,
-                deadlinePressure: 0,
-                energyFit: 0,
-                procrastinationRisk: 0,
+                urgency: Math.round(urgencyScore * 100) / 100,
+                importance: Math.round(importanceScore * 100) / 100,
+                deadlinePressure: Math.round(deadlinePressureScore * 100) / 100,
+                energyFit: Math.round(energyFitScore * 100) / 100,
+                procrastinationRisk: Math.round(procrastinationRiskScore * 100) / 100,
             },
         };
     }
@@ -119,13 +102,16 @@ export class PriorityScoreService {
      * (2) Importance — dựa theo ma trận Eisenhower suy từ importance + deadline
      */
     private calcImportance(importance: Importance, deadline: Date | null): number {
+        if (importance === 'CRITICAL') return 10;
+        
         const isUrgent = deadline
             ? (deadline.getTime() - Date.now()) / (1000 * 60 * 60) <= 48
             : false;
 
-        if (importance === 'HIGH' && isUrgent) return 10;  // Q1
+        if (importance === 'HIGH' && isUrgent) return 9;  // Q1
         if (importance === 'HIGH' && !isUrgent) return 7;  // Q2
-        if (importance === 'LOW' && isUrgent) return 4;    // Q3
+        if (importance === 'MEDIUM') return 5;
+        if (importance === 'LOW' && isUrgent) return 3;    // Q3
         return 1; // Q4
     }
 
@@ -218,5 +204,18 @@ export class PriorityScoreService {
         if (hour >= 17 && hour <= 19) return 6;  
         if (hour >= 20 && hour <= 22) return 4;  
         return 3;                                 
+    }
+
+    /**
+     * (5) ProcrastinationRisk
+     */
+    private async calcProcrastinationRisk(userId: string): Promise<number> {
+        const latest = await this.prisma.procrastinationScore.findFirst({
+            where: { userId },
+            orderBy: { calculatedDate: 'desc' },
+        });
+        if (!latest) return 0;
+        
+        return Math.round((latest.score / 10) * 100) / 100;
     }
 }

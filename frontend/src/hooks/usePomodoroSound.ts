@@ -1,89 +1,73 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect } from 'react';
 
 export type PomodoroSessionType = 'WORK' | 'BREAK';
 
-type PomodoroAudioMap = Record<PomodoroSessionType, HTMLAudioElement>;
+const audioElements: Record<PomodoroSessionType, HTMLAudioElement | null> = {
+  WORK: null,
+  BREAK: null,
+};
+
+let isUnlocked = false;
 
 export function usePomodoroSound() {
-  const audioRef = useRef<PomodoroAudioMap | null>(null);
-
   useEffect(() => {
-    const workCompleteAudio = new Audio(
-      '/sounds/pomodoro-work-complete.wav',
-    );
+    if (!audioElements.WORK) {
+      const workAudio = new Audio('/sounds/pomodoro-work-complete.wav');
+      workAudio.preload = 'auto';
+      workAudio.volume = 0.75;
+      audioElements.WORK = workAudio;
+    }
 
-    const breakCompleteAudio = new Audio(
-      '/sounds/pomodoro-break-complete.wav',
-    );
-
-    workCompleteAudio.preload = 'auto';
-    breakCompleteAudio.preload = 'auto';
-
-    workCompleteAudio.volume = 0.75;
-    breakCompleteAudio.volume = 0.65;
-
-    audioRef.current = {
-      WORK: workCompleteAudio,
-      BREAK: breakCompleteAudio,
-    };
-
-    return () => {
-      Object.values(audioRef.current ?? {}).forEach((audio) => {
-        audio.pause();
-        audio.removeAttribute('src');
-        audio.load();
-      });
-
-      audioRef.current = null;
-    };
+    if (!audioElements.BREAK) {
+      const breakAudio = new Audio('/sounds/pomodoro-break-complete.wav');
+      breakAudio.preload = 'auto';
+      breakAudio.volume = 0.65;
+      audioElements.BREAK = breakAudio;
+    }
   }, []);
 
-  /**
-   * Gọi hàm này khi người dùng bấm nút bắt đầu Pomodoro.
-   * Mục đích là mở quyền phát âm thanh của trình duyệt.
-   */
-  const unlockAudio = useCallback(async () => {
-    const audios = Object.values(audioRef.current ?? {});
+  const unlockAudio = useCallback(() => {
+    if (isUnlocked) return;
+    isUnlocked = true;
 
-    await Promise.all(
-      audios.map(async (audio) => {
-        const originalVolume = audio.volume;
-
-        try {
-          audio.volume = 0;
-          audio.currentTime = 0;
-
-          await audio.play();
-
+    Object.values(audioElements).forEach((audio) => {
+      if (!audio) return;
+      const originalVolume = audio.volume;
+      try {
+        audio.volume = 0;
+        const p = audio.play();
+        if (p !== undefined) {
+          p.then(() => {
+            audio.pause();
+            audio.currentTime = 0;
+            audio.volume = originalVolume;
+          }).catch(() => {
+            audio.volume = originalVolume;
+          });
+        } else {
           audio.pause();
           audio.currentTime = 0;
-        } catch {
-          // Không chặn luồng bắt đầu Pomodoro nếu trình duyệt từ chối.
-        } finally {
           audio.volume = originalVolume;
         }
-      }),
-    );
+      } catch {
+        audio.volume = originalVolume;
+      }
+    });
   }, []);
 
   const playSessionEndSound = useCallback(
-    async (sessionType: PomodoroSessionType) => {
-      const audio = audioRef.current?.[sessionType];
-
-      if (!audio) {
-        return;
-      }
+    (sessionType: PomodoroSessionType) => {
+      const audio = audioElements[sessionType];
+      if (!audio) return;
 
       try {
         audio.pause();
         audio.currentTime = 0;
-
-        await audio.play();
+        audio.play().catch((err) => {
+          console.warn('Cannot play pomodoro sound:', err);
+        });
       } catch (error) {
-        console.warn(
-          'Trình duyệt không cho phép phát âm thanh Pomodoro:',
-          error,
-        );
+        console.warn('Error playing pomodoro sound:', error);
       }
     },
     [],

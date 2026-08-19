@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Settings, Shield, Save } from 'lucide-react';
+import { Settings, Save } from 'lucide-react';
 import { ConfirmModal } from '../../components/ui';
 import { createToast, type ToastMessage } from '../../components/common/Toast';
 
@@ -10,8 +10,6 @@ interface AdminSettingsProps {
 export function AdminSettingsPage({ onToast }: AdminSettingsProps) {
   const [appName, setAppName] = useState('FocusFlow');
   const [timezone, setTimezone] = useState('Asia/Ho_Chi_Minh');
-  const [maxSubtasks, setMaxSubtasks] = useState(5);
-  const [rateLimit, setRateLimit] = useState(60);
 
   // Destructive / Save confirm modal
   const [showConfirm, setShowConfirm] = useState(false);
@@ -81,47 +79,6 @@ export function AdminSettingsPage({ onToast }: AdminSettingsProps) {
               <option value="Asia/Ho_Chi_Minh">Asia/Ho_Chi_Minh (UTC+07:00)</option>
               <option value="UTC">UTC (Coordinated Universal Time)</option>
             </select>
-          </div>
-        </div>
-
-        {/* AI & Security Settings */}
-        <div className="rounded-2xl border border-[#E8F5E8] bg-white p-6 shadow-sm space-y-4">
-          <div className="flex items-center gap-3 border-b border-[#E8F5E8] pb-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#DDF3DF]">
-              <Shield className="h-5 w-5 text-[#5FAF6E]" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-[#243024]">Giới hạn AI & API</h3>
-              <p className="text-xs text-gray-500">Bảo vệ tài nguyên và hạn chế rate limit</p>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1">
-              Số subtask gợi ý tối đa mỗi lượt AI
-            </label>
-            <input
-              type="number"
-              min={1}
-              max={10}
-              value={maxSubtasks}
-              onChange={(e) => setMaxSubtasks(Number(e.target.value))}
-              className="w-full rounded-xl border border-[#E8F5E8] px-4 py-2.5 text-sm text-[#243024] font-semibold focus:outline-none focus:ring-2 focus:ring-[#5FAF6E]"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1">
-              API Rate Limit (request / phút)
-            </label>
-            <input
-              type="number"
-              min={10}
-              max={300}
-              value={rateLimit}
-              onChange={(e) => setRateLimit(Number(e.target.value))}
-              className="w-full rounded-xl border border-[#E8F5E8] px-4 py-2.5 text-sm text-[#243024] font-semibold focus:outline-none focus:ring-2 focus:ring-[#5FAF6E]"
-            />
           </div>
         </div>
       </div>

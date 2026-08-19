@@ -387,3 +387,42 @@ model AiInsight {
   @@index([userId, weekStartDate])
   @@map("ai_insights")
 }
+
+// ─── SYSTEM LOGS ────────────────────────────────────────────
+
+enum SystemLogCategory {
+  API
+  SCHEDULER
+  ANALYTICS
+  CRON
+  AI
+  ADMIN
+}
+
+enum SystemLogStatus {
+  STARTED
+  SUCCESS
+  FAILED
+  SKIPPED
+}
+
+model SystemLog {
+  id           String            @id @default(cuid())
+  category     SystemLogCategory
+  eventType    String            @map("event_type")
+  status       SystemLogStatus
+  userId       String?           @map("user_id")
+  adminId      String?           @map("admin_id")
+  source       String?
+  message      String?
+  metadata     Json?
+  durationMs   Int?              @map("duration_ms")
+  errorMessage String?           @map("error_message")
+  createdAt    DateTime          @default(now()) @map("created_at")
+
+  @@index([category])
+  @@index([eventType])
+  @@index([status])
+  @@index([createdAt])
+  @@map("system_logs")
+}

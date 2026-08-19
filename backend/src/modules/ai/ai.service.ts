@@ -1,4 +1,5 @@
 import { Injectable, Logger, HttpException, HttpStatus, InternalServerErrorException, BadGatewayException, ServiceUnavailableException } from '@nestjs/common';
+import { decrypt } from '../../common/utils/encryption.util';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { HttpService } from '@nestjs/axios';
@@ -8,6 +9,7 @@ import { firstValueFrom } from 'rxjs';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { Cron } from '@nestjs/schedule';
 import { SuggestSubtasksDto, AiSubtasksResponseDto, SuggestedSubtaskDto } from './dto/suggest-subtask.dto';
+import { SystemLogService } from '../admin/system-log.service';
 
 @Injectable()
 export class AiService {
@@ -25,23 +27,20 @@ export class AiService {
         private readonly httpService: HttpService,
         private readonly configService: ConfigService,
         private readonly analyticsService: AnalyticsService,
+        private readonly systemLogService: SystemLogService,
     ) {}
 
       // ─── SUGGEST SUBTASKS ────────────────────────────────────────
 
-    async suggestSubtasks(dto: SuggestSubtasksDto): Promise<AiSubtasksResponseDto> {
+    async suggestSubtasks(userId: string, dto: SuggestSubtasksDto): Promise<AiSubtasksResponseDto> {
         if (dto.eisenhowerQuadrant && !dto.importance) {
             dto.importance = dto.eisenhowerQuadrant;
         }
 
-        // Ưu tiên GEMINI_DEMO_API_KEY, fallback sang GEMINI_API_KEY
-        const apiKey = this.configService.get<string>('GEMINI_DEMO_API_KEY') || this.configService.get<string>('GEMINI_API_KEY');
-        if (!apiKey) {
-            this.logger.error('API KEY chưa được cấu hình');
-            throw new InternalServerErrorException('Dịch vụ AI chưa được cấu hình');
-        }
+        const apiKey = await this.getGeminiApiKey(userId);
         const model = this.configService.get<string>('GEMINI_MODEL') || 'gemini-3.5-flash-lite';
-        const url = `${this.geminiBaseURL}/${encodeURIComponent(model)}:generateContent`;
+        const subtaskStart = Date.now();
+        const url = `${this.geminiBaseURL}/${encodeURIComponent(model)}:generateContent?key=${apiKey}`;
 
         const prompt = this.buildSubtaskPrompt(dto);
         const requestBody = {
@@ -102,7 +101,6 @@ export class AiService {
                         timeout: this.requestTimeoutMs,
                         headers: {
                             'Content-Type': 'application/json',
-                            'x-goog-api-key': apiKey,
                         },
                     },
                 ),
@@ -118,6 +116,19 @@ export class AiService {
                 );
             }
 
+            this.systemLogService.log({
+                category: 'AI',
+                eventType: 'AI_SUBTASK_GENERATED',
+                status: 'SUCCESS',
+                userId,
+                durationMs: Date.now() - subtaskStart,
+                metadata: {
+                    taskTitle: dto.taskTitle,
+                    model,
+                    generatedSubtaskCount: subtasks.length,
+                },
+            });
+
             return {
                 success: true,
                 message: 'Phân rã task thành công',
@@ -125,6 +136,15 @@ export class AiService {
                 timestamp: new Date(),
             };
         } catch (error: unknown) {
+            this.systemLogService.log({
+                category: 'AI',
+                eventType: 'AI_SUBTASK_GENERATED',
+                status: 'FAILED',
+                userId,
+                durationMs: Date.now() - subtaskStart,
+                errorMessage: (error as any)?.message,
+                metadata: { taskTitle: dto.taskTitle, model },
+            });
             this.handleGeminiError(error, dto.taskTitle);
         }
     }
@@ -185,6 +205,7 @@ export class AiService {
         const weekStart = weekStartDate
             ? this.parseStartOfDay(weekStartDate)
             : this.getLastMonday();
+        const insightStart = Date.now();
 
         // Kiểm tra đã có chưa
         const existing = await this.prisma.aiInsight.findUnique({
@@ -439,7 +460,7 @@ export class AiService {
 
         // Gọi Gemini API
         try {
-            const content = await this.callGeminiInsights(inputSummary, weekStart);
+            const content = await this.callGeminiInsights(userId, inputSummary, weekStart);
 
             await this.prisma.aiInsight.update({
                 where: { id: record.id },
@@ -448,6 +469,20 @@ export class AiService {
                     inputSummary: inputSummary as any,
                     status: InsightStatus.GENERATED,
                     isActionable: true,
+                },
+            });
+
+            this.systemLogService.log({
+                category: 'AI',
+                eventType: 'AI_INSIGHT_GENERATED',
+                status: 'SUCCESS',
+                userId,
+                durationMs: Date.now() - insightStart,
+                metadata: {
+                    weekStartDate: weekStart.toISOString().split('T')[0],
+                    model: this.configService.get<string>('GEMINI_MODEL') || 'gemini-3.5-flash-lite',
+                    aiInsightId: record.id,
+                    dataLevel: 'FULL',
                 },
             });
 
@@ -461,18 +496,27 @@ export class AiService {
                 data: { status: InsightStatus.FAILED, inputSummary: inputSummary as any },
             });
 
+            this.systemLogService.log({
+                category: 'AI',
+                eventType: 'AI_INSIGHT_GENERATED',
+                status: 'FAILED',
+                userId,
+                durationMs: Date.now() - insightStart,
+                errorMessage: err?.message,
+                metadata: {
+                    weekStartDate: weekStart.toISOString().split('T')[0],
+                    aiInsightId: record.id,
+                },
+            });
+
             throw new HttpException('Không thể tạo AI Insight lúc này. Vui lòng thử lại sau.', HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 
-    private async callGeminiInsights(summary: any, weekStart: Date): Promise<any> {
-        const apiKey = this.configService.get<string>('GEMINI_DEMO_API_KEY') || this.configService.get<string>('GEMINI_API_KEY');
-        if (!apiKey) {
-            this.logger.error('API KEY chưa được cấu hình');
-            throw new InternalServerErrorException('Dịch vụ AI chưa được cấu hình');
-        }
+    private async callGeminiInsights(userId: string, summary: any, weekStart: Date): Promise<any> {
+        const apiKey = await this.getGeminiApiKey(userId);
         const model = this.configService.get<string>('GEMINI_MODEL') || 'gemini-3.5-flash-lite';
-        const url = `${this.geminiBaseURL}/${encodeURIComponent(model)}:generateContent`;
+        const url = `${this.geminiBaseURL}/${encodeURIComponent(model)}:generateContent?key=${apiKey}`;
 
         const weekNum = this.getISOWeek(weekStart);
         const prompt = `Bạn là một trợ lý phân tích năng suất cá nhân thông minh và là một chuyên gia tâm lý học hành vi. 
@@ -523,7 +567,6 @@ Trả về JSON với cấu trúc chính xác sau đây (không được có mar
                     timeout: this.requestTimeoutMs,
                     headers: {
                         'Content-Type': 'application/json',
-                        'x-goog-api-key': apiKey,
                     },
                 }
             )
@@ -546,31 +589,66 @@ Trả về JSON với cấu trúc chính xác sau đây (không được có mar
         waitForCompletion: true,
         })
     async handleWeeklyInsightsCron() {
-        this.logger.log('Starting weekly AI Insights cron job...');
+        const cronName = 'weeklyAiInsights';
+        const cronStart = Date.now();
+        await this.systemLogService.logAsync({ category: 'CRON', eventType: 'CRON_STARTED', status: 'STARTED', source: cronName });
+        let processedCount = 0;
+        let failedCount = 0;
         try {
-            const users = await this.prisma.user.findMany({
-                where: { isActive: true, role: 'USER' },
-                select: { id: true },
-            });
+            await this.runWeeklyInsightsCron((ok) => ok ? processedCount++ : failedCount++);
+            await this.systemLogService.logAsync({ category: 'CRON', eventType: 'CRON_COMPLETED', status: 'SUCCESS', source: cronName, durationMs: Date.now() - cronStart, metadata: { processedCount, failedCount } });
+        } catch (err: any) {
+            await this.systemLogService.logAsync({ category: 'CRON', eventType: 'CRON_FAILED', status: 'FAILED', source: cronName, durationMs: Date.now() - cronStart, errorMessage: err?.message });
+            throw err;
+        }
+    }
 
-            const weekStart = this.formatLocalDateString(this.getLastMonday());
-            this.logger.log(`Cron target weekStartDate: ${weekStart}. Processing ${users.length} users.`);
+    private async runWeeklyInsightsCron(onUserResult: (success: boolean) => void): Promise<void> {
+        this.logger.log('Starting weekly AI Insights cron job...');
+        const users = await this.prisma.user.findMany({
+            where: { isActive: true, role: 'USER' },
+            select: { id: true },
+        });
 
-            for (const user of users) {
-                try {
-                    await this.generateInsight(user.id, weekStart, false);
-                    this.logger.log(`Successfully generated insight in cron for user ${user.id}`);
-                } catch (e) {
-                    this.logger.error(`Failed to generate insight in cron for user ${user.id}: ${e.message}`);
-                }
+        const weekStart = this.formatLocalDateString(this.getLastMonday());
+        this.logger.log(`Cron target weekStartDate: ${weekStart}. Processing ${users.length} users.`);
+
+        for (const user of users) {
+            try {
+                await this.generateInsight(user.id, weekStart, false);
+                this.logger.log(`Successfully generated insight in cron for user ${user.id}`);
+                onUserResult(true);
+            } catch (e) {
+                this.logger.error(`Failed to generate insight in cron for user ${user.id}: ${e.message}`);
+                onUserResult(false);
             }
-        } catch (err) {
-            this.logger.error('Error executing weekly AI Insights cron job:', err?.message ?? err);
         }
         this.logger.log('Completed weekly AI Insights cron job.');
     }
 
     // ─── PRIVATE HELPERS ────────────────────────────────────────
+
+    private async getGeminiApiKey(userId: string): Promise<string> {
+        const prefs = await this.prisma.userPreference.findUnique({
+            where: { userId },
+            select: { geminiApiKey: true },
+        });
+
+        if (prefs?.geminiApiKey) {
+            try {
+                return decrypt(prefs.geminiApiKey);
+            } catch (err) {
+                this.logger.error(`Failed to decrypt geminiApiKey for user ${userId}`);
+            }
+        }
+
+        const fallbackKey = this.configService.get<string>('GEMINI_DEMO_API_KEY') || this.configService.get<string>('GEMINI_API_KEY');
+        if (!fallbackKey) {
+            this.logger.error('API KEY chưa được cấu hình');
+            throw new InternalServerErrorException('Dịch vụ AI chưa được cấu hình');
+        }
+        return fallbackKey;
+    }
 
     private cleanAndParseJson(rawText: string) {
         const cleaned = rawText.replace(/```json\n?|```\n?/g, '').trim();

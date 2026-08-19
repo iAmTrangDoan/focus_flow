@@ -23,6 +23,7 @@ import { NotificationService } from '../notification/notification.service';
 import { PriorityScoreService } from '../tasks/priority-score.service';
 import { NotificationGateway } from '../notification/notification.gateway';
 import { parseWorkWindow, resolveLogicalDate, parseHHMM, WorkWindow } from '../../common/utils/work-window.util';
+import { SystemLogService } from '../admin/system-log.service';
 
 type SchedulableTask = Prisma.TaskGetPayload<{
     include: { subtasks: true };
@@ -180,6 +181,7 @@ export class SchedulerService {
         private readonly notificationService: NotificationService,
         private readonly priorityScoreService: PriorityScoreService,
         private readonly notificationGateway: NotificationGateway,
+        private readonly systemLogService: SystemLogService,
     ) {}
 
     /**
@@ -191,6 +193,7 @@ export class SchedulerService {
         }
 
         this.activeGenerations.set(userId, true); //active generation flag dùng để ngăn chặn việc sinh lịch nhiều lần cùng lúc
+        const scheduleStart = Date.now();
        
         try {
             const now = new Date();
@@ -605,7 +608,7 @@ export class SchedulerService {
             occurredAt: new Date(),
         });
 
-        return {
+        const result = {
             message:
                 overflow.length > 0
                     ? 'Đã tạo lịch nhưng vẫn còn task chưa được xếp hết'
@@ -642,6 +645,23 @@ export class SchedulerService {
             overflow,
             warnings,
         };
+
+        this.systemLogService.log({
+            category: 'SCHEDULER',
+            eventType: 'SCHEDULE_GENERATED',
+            status: 'SUCCESS',
+            userId,
+            durationMs: Date.now() - scheduleStart,
+            metadata: {
+                taskCount: tasks.length,
+                newSlotsCreated: plannedSlots.length,
+                overflowTaskCount: overflow.length,
+                overdueTaskCount: overdueTasks.length,
+                flexibleTasksScheduled,
+            },
+        });
+
+        return result;
         } finally {
             this.activeGenerations.delete(userId);
         }
@@ -654,8 +674,41 @@ export class SchedulerService {
      */
     @Cron('0 */5 * * * *', { timeZone: 'Asia/Ho_Chi_Minh' })
     async detectOverdueSlots(): Promise<{ frozenCount: number }> {
-        const now = new Date();
+        const cronName = 'detectOverdueSlots';
+        const cronStart = Date.now();
+        await this.systemLogService.logAsync({
+            category: 'CRON',
+            eventType: 'CRON_STARTED',
+            status: 'STARTED',
+            source: cronName,
+        });
+        try {
+            const result = await this.runDetectOverdueSlots();
+            await this.systemLogService.logAsync({
+                category: 'CRON',
+                eventType: 'CRON_COMPLETED',
+                status: 'SUCCESS',
+                source: cronName,
+                durationMs: Date.now() - cronStart,
+                metadata: { frozenCount: result.frozenCount },
+            });
+            return result;
+        } catch (err: any) {
+            await this.systemLogService.logAsync({
+                category: 'CRON',
+                eventType: 'CRON_FAILED',
+                status: 'FAILED',
+                source: cronName,
+                durationMs: Date.now() - cronStart,
+                errorMessage: err?.message,
+            });
+            throw err;
+        }
+    }
 
+    private async runDetectOverdueSlots(): Promise<{ frozenCount: number }> {
+
+        const now = new Date();
         const rows = await this.prisma.$queryRaw<FrozenSlotRow[]>(Prisma.sql`
             WITH frozen AS (
                 UPDATE "schedule_slots" AS ss
@@ -864,6 +917,19 @@ export class SchedulerService {
         // generateWeekly giữ slot quá giờ làm lịch sử nhưng không trừ nó khỏi
         // thời lượng công việc còn lại; phần việc bị lỡ sẽ được xếp lại.
         const schedule = await this.generateWeekly(userId, false);
+
+        this.systemLogService.log({
+            category: 'SCHEDULER',
+            eventType: 'SCHEDULE_RESTRUCTURED',
+            status: 'SUCCESS',
+            userId,
+            metadata: {
+                slotId,
+                taskId: slot.taskId,
+                taskTitle: slot.task.title,
+                strategy,
+            },
+        });
 
         await this.notificationService.createNotification(
             userId,
